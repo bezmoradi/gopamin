@@ -1,0 +1,134 @@
+## GraphQL API Guide
+
+This project is created without any database integration. The `NewUserService` though needs an input param of type `ports.UserRepositoryInterface`; so a `MockRepository` is added to the project to satisfy the `NewUserService` requirements as you can see in the `main` function below:
+
+```go
+// cmd/main.go
+func main() {
+	db := &mock.MockRepository{}
+	service := services.NewUserService(db)
+	schema := graphql.New(service)
+	logger := log.New()
+	server.Serve(schema, logger)
+}
+```
+
+By visiting the `http://localhost:8080/graphql` endpoint, you'll see the GraphiQL which is is an in-browser IDE for exploring GraphQL APIs.
+
+### Add A New User
+
+In order to add a new user, run the following mutation:
+
+```text
+mutation {
+  create(name: "John Doe")
+}
+```
+
+Then in the response you'll see:
+
+```text
+{
+  "data": {
+    "create": "89c08519-7361-42a4-991e-afb7dc2fc308"
+  }
+}
+```
+
+### Fetch All Users
+
+By sending the following query, you'll see a list of users:
+
+```text
+query {
+  users {
+    id
+    name
+  }
+}
+```
+
+Then in the response you'll see:
+
+```text
+{
+  "data": {
+    "users": [
+      {
+        "id": "89c08519-7361-42a4-991e-afb7dc2fc308",
+        "name": "Jane Doe"
+      },
+      {
+        "id": "9ad7f0f9-6359-4fce-954d-0b5325ba153f",
+        "name": "Jane Doe"
+      }
+    ]
+  }
+}
+```
+
+### Fetch An Existing User
+
+In order to fetch an existing user by ID, run the following query (Replace the `<USER_ID>` with an actual ID):
+
+```text
+query {
+  user(id: "<USER_ID>") {
+    id
+    name
+  }
+}
+```
+
+Then in the response you'll see:
+
+```text
+{
+  "data": {
+    "user": {
+      "id": "89c08519-7361-42a4-991e-afb7dc2fc308",
+      "name": "Jane Doe"
+    }
+  }
+}
+```
+
+### Update An Existing User
+
+In order to update an existing user, run the following mutation (Replace the `<USER_ID>` with an actual ID):
+
+```text
+mutation {
+  update(id: "<USER_ID>", name : "Jane Doe")
+}
+```
+
+Then in the response you'll see:
+
+```text
+{
+  "data": {
+    "update": "1"
+  }
+}
+```
+
+### Delete An Existing User
+
+In order to delete an existing user, run the following mutation (Replace the `<USER_ID>` with an actual ID):
+
+```text
+mutation {
+  delete(id: "<USER_ID>")
+}
+```
+
+Then in the response you'll see:
+
+```text
+{
+  "data": {
+    "delete": "1"
+  }
+}
+```

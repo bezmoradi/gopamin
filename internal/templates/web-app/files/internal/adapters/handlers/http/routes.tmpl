@@ -1,0 +1,33 @@
+package http
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/tools"
+	"net/http"
+)
+
+type router struct {
+	engine       *http.ServeMux
+	globalPrefix string
+	rootDir      string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	rootDir, err := tools.FindRootDir()
+	if err != nil {
+		panic(err)
+	}
+
+	return &router{
+		engine:       http.NewServeMux(),
+		globalPrefix: "/users",
+		rootDir:      rootDir,
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

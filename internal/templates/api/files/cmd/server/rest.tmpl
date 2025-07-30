@@ -1,0 +1,27 @@
+package server
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+)
+
+func Serve(handlers ports.RouterInterface, logger ports.Logger) {
+	port := os.Getenv("PORT")
+	logger.Info(fmt.Sprintf("The API is accessible at http://localhost:%s/api/v1/users", port))
+
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%v", port),
+		Handler:      handlers.Register(),
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+
+	err := server.ListenAndServe()
+	if err != nil {
+		logger.Panic(err)
+	}
+}

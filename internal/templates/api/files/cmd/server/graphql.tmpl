@@ -1,0 +1,23 @@
+package server
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"{{.Name}}/internal/core/ports"
+
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
+)
+
+func Serve(schema graphql.Schema, logger ports.Logger) {
+	port := os.Getenv("PORT")
+	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
+	http.Handle("/graphql", handler.New(&handler.Config{
+		Schema:     &schema,
+		Pretty:     true,
+		GraphiQL:   false,
+		Playground: true,
+	}))
+	http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
+}

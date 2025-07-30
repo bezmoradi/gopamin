@@ -1,0 +1,104 @@
+package badgerdb
+
+import (
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+
+	"github.com/dgraph-io/badger/v4"
+	"github.com/google/uuid"
+)
+
+type connection struct {
+	db *badger.DB
+	logger ports.Logger
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	options := badger.DefaultOptions("./badger")
+	options.Logger = nil
+	db, err := badger.Open(options)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	c := &connection{db: db, logger: logger}
+
+	return c
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	err := c.db.Update(func(txn *badger.Txn) error {
+		err := txn.Delete([]byte(id))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return "1", nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	var value []byte
+	err := c.db.View(func(txn *badger.Txn) error {
+		i, err := txn.Get([]byte(id))
+		if err != nil {
+			return err
+		}
+		value, err = i.ValueCopy(value)
+		return err
+	})
+	if err != nil {
+		return domain.User{}, err
+	}
+	return domain.User{Id: id, Name: string(value)}, err
+
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	var users []domain.User
+	err := c.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchSize = 10
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			err := item.Value(func(v []byte) error {
+				users = append(users, domain.User{Id: string(k), Name: string(v)})
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	id := uuid.New()
+
+	err := c.db.Update(func(txn *badger.Txn) error {
+		err := txn.Set([]byte(id.String()), []byte(name))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
+}
+
+func (c *connection) Update(id string, value string) (string, error) {
+	err := c.db.Update(func(txn *badger.Txn) error {
+		err := txn.Set([]byte(id), []byte(value))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return "1", nil
+}

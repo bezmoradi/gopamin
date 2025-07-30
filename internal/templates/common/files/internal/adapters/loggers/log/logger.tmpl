@@ -1,0 +1,62 @@
+package log
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"{{.Name}}/internal/core/ports"
+)
+
+type logger struct {
+	logger *log.Logger
+}
+
+func New(fileName ...string) ports.Logger {
+	if len(fileName) > 0 {
+		file, err := os.OpenFile(fileName[0], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			panic(err)
+		}
+		l := log.Default()
+		l.SetOutput(file)
+		return logger{logger: l}
+	}
+
+	l := log.Default()
+	l.SetOutput(os.Stdout)
+	return logger{logger: l}
+}
+
+func (l logger) Info(message string, args ...any) {
+	l.logger.Println(prepareArgs(message, "INFO", args...))
+}
+
+func (l logger) Warn(message string, args ...any) {
+	l.logger.Println(prepareArgs(message, "WARN", args...))
+}
+
+func (l logger) Error(message string, args ...any) {
+	l.logger.Println(prepareArgs(message, "ERROR", args...))
+}
+
+func (l logger) Fatal(err error) {
+	l.logger.Println(err)
+	os.Exit(1)
+}
+
+func (l logger) Panic(err error) {
+	panic(err)
+}
+
+func prepareArgs(message string, logType string, args ...any) string {
+	if len(args)%2 != 0 {
+		panic("args must be key-value pairs")
+	}
+	msg := fmt.Sprintf("%s %s", logType, message)
+	for i := 0; i < len(args); i += 2 {
+		key := args[i]
+		value := args[i+1]
+		msg += fmt.Sprintf(" %s=%v", key, value)
+	}
+	return msg
+}

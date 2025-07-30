@@ -1,0 +1,82 @@
+package rabbitmq
+
+import (
+	"context"
+	"fmt"
+	"{{.Name}}/internal/core/ports"
+	"os"
+
+	"github.com/streadway/amqp"
+)
+
+type rabbitmqBroker struct {
+	connection  *amqp.Connection
+	channel     *amqp.Channel
+	queue       amqp.Queue
+	channelName string
+}
+
+func New(channelName string, logger ports.Logger) ports.MessageBrokerInterface {
+	user := os.Getenv("RABBITMQ_USER")
+	password := os.Getenv("RABBITMQ_PASSWORD")
+	port := os.Getenv("RABBITMQ_PORT")
+
+	conn, err := amqp.Dial(fmt.Sprintf("amqp://%v:%v@localhost:%v/", user, password, port))
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	q, err := ch.QueueDeclare(channelName, false, false, false, false, nil)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	logger.Info("Successfully connected to RabbitMQ")
+
+	return &rabbitmqBroker{
+		connection:  conn,
+		channel:     ch,
+		queue:       q,
+		channelName: channelName,
+	}
+}
+
+func (r *rabbitmqBroker) Produce(_ context.Context, value []byte) error {
+	defer r.channel.Close()
+	defer r.connection.Close()
+
+	err := r.channel.Publish("", r.channelName, false, false, amqp.Publishing{
+		ContentType: "test/plain",
+		Body:        value,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *rabbitmqBroker) Consume(_ context.Context, handler func(value []byte)) error {
+	defer r.channel.Close()
+	defer r.connection.Close()
+
+	messages, err := r.channel.Consume(r.channelName, "", true, false, false, false, nil)
+	if err != nil {
+		return err
+	}
+
+	mychan := make(chan bool)
+	go func() {
+		for msg := range messages {
+			handler([]byte(msg.Body))
+		}
+	}()
+	<-mychan
+
+	return nil
+}

@@ -1,0 +1,161 @@
+package mariadb
+
+import (
+	"database/sql"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+	"os"
+	"strconv"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+const tableName = "users"
+
+type connection struct {
+	db *sql.DB
+	logger ports.Logger
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	databaseName := os.Getenv("MARIADB_DATABASE")
+	databasePassword := os.Getenv("MARIADB_PASSWORD")
+	databaseUsername := os.Getenv("MARIADB_USERNAME")
+	databasePort := os.Getenv("MARIADB_PORT")
+	databaseHost := os.Getenv("MARIADB_HOST")
+
+	db, err := sql.Open(
+		"mysql",
+		fmt.Sprintf(
+			"%s:%s@tcp(%s:%s)/%s?timeout=10s",
+			databaseUsername,
+			databasePassword,
+			databaseHost,
+			databasePort,
+			databaseName,
+		),
+	)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	db.SetConnMaxLifetime(0)
+	db.SetMaxIdleConns(50)
+	db.SetMaxOpenConns(50)
+
+	c := &connection{db: db, logger: logger}
+	c.CreateTable()
+
+	return c
+}
+
+func (c *connection) CreateTable() error {
+	_, err := c.db.Exec(
+		fmt.Sprintf(
+			"CREATE TABLE IF NOT EXISTS %s (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50))",
+			tableName,
+		),
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	result, err := c.db.Exec(
+		fmt.Sprintf(
+			"INSERT INTO %s (name) VALUES (?)",
+			tableName,
+		),
+		name,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	lastInsertID, _ := result.LastInsertId()
+
+	return strconv.FormatInt(lastInsertID, 10), nil
+}
+
+func (c *connection) Update(id string, newName string) (string, error) {
+	result, err := c.db.Exec(
+		fmt.Sprintf(
+			"UPDATE %s SET name = ? WHERE id = ?",
+			tableName,
+		),
+		newName,
+		id,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	return strconv.FormatInt(rowsAffected, 10), nil
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	result, err := c.db.Exec(
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE id = ?",
+			tableName,
+		),
+		id,
+	)
+	if err != nil {
+		return "0", err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	return strconv.FormatInt(rowsAffected, 10), nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	var user domain.User
+	row := c.db.QueryRow(
+		fmt.Sprintf(
+			"SELECT * FROM %s WHERE id = ?",
+			tableName,
+		),
+		id,
+	)
+
+	if err := row.Scan(&user.Id, &user.Name); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.User{}, fmt.Errorf("user not found with ID %v", id)
+		} else {
+			return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		}
+	}
+
+	return user, nil
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	var users []domain.User
+	rows, err := c.db.Query(
+		fmt.Sprintf(
+			"SELECT * FROM %s",
+			tableName,
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var user domain.User
+		if err := rows.Scan(&user.Id, &user.Name); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}

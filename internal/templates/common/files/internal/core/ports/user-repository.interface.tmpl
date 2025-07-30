@@ -1,0 +1,11 @@
+package ports
+
+import "{{.Name}}/internal/core/domain"
+
+type UserRepositoryInterface interface {
+	Delete(id string) (string, error)
+	Fetch(id string) (domain.User, error)
+	FetchAll() ([]domain.User, error)
+	Insert(name string) (string, error)
+	Update(id string, value string) (string, error)
+}

@@ -1,0 +1,27 @@
+package gorilla
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+
+	"github.com/gorilla/mux"
+)
+
+type router struct {
+	engine       *mux.Router
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       mux.NewRouter(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

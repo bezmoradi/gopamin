@@ -1,0 +1,43 @@
+package services
+
+import (
+	"errors"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+)
+
+type userService struct {
+	repo ports.UserRepositoryInterface
+}
+
+func NewUserService(repo ports.UserRepositoryInterface) *userService {
+	return &userService{repo: repo}
+}
+
+func (us *userService) Index() ([]domain.User, error) {
+	return us.repo.FetchAll()
+}
+
+func (us *userService) Show(id string) (domain.User, error) {
+	return us.repo.Fetch(id)
+}
+
+func (us *userService) Create(name string) (string, error) {
+	if name == "" {
+		return "", errors.New("name is required")
+	}
+
+	return us.repo.Insert(name)
+}
+
+func (us *userService) Update(id string, newName string) (string, error) {
+	if newName == "" {
+		return "", errors.New("new name is required")
+	}
+
+	return us.repo.Update(id, newName)
+}
+
+func (us *userService) Delete(id string) (string, error) {
+	return us.repo.Delete(id)
+}

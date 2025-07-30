@@ -1,0 +1,12 @@
+package main
+
+import "testing"
+
+func TestProjectName(t *testing.T) {
+	t.Run("return project name", func(t *testing.T) {
+		projectName := projectName()
+		if projectName != "{{.Name}}" {
+			t.Fatalf("expected {{.Name}} but got %v", projectName)
+		}
+	})
+}

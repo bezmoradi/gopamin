@@ -1,0 +1,17 @@
+package domain
+
+import "encoding/json"
+
+type User struct {
+	Id   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+func (u User) ToJson() (string, error) {
+	byteSlice, err := json.Marshal(u)
+	if err != nil {
+		return "", err
+	}
+
+	return string(byteSlice), nil
+}

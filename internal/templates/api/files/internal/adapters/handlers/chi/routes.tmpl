@@ -1,0 +1,27 @@
+package chi
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+type router struct {
+	engine       *chi.Mux
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       chi.NewRouter(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

@@ -1,0 +1,119 @@
+## Redis Guide
+
+Since this project incorporates Redis as a Pub/Sub service, you must adhere to the following instructions before running the app.  
+A `docker-compose.yml` file is included in this project which will be used for creating a Redis container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
+
+### Run A Redis Container
+
+First, make sure Docker is up and running on your machine. Then in the root path of the project run the following command:
+
+```text
+$ make redis-up
+```
+
+In order to stop the container, you can run the following command:
+
+```text
+$ make redis-down
+```
+
+Although it stops the container, still the volume related to the previously-created container exits and if you run `make redis-up` again, you have access to persisted data if any.  
+In order to stop the container and at the same time remove the volume related to that container, you can run the following command:
+
+```text
+$ make redis-down-rm-vol
+```
+
+## Publish A New Message
+
+By running the following command in the terminal, open the Redis CLI:
+
+```text
+$ redis-cli
+```
+
+In the Redis CLI, subscribe to a channel using the `SUBSCRIBE` command. For example, if you want to subscribe to a channel named `testing`, you need to run the following command:
+
+```text
+127.0.0.1:6379> SUBSCRIBE testing
+```
+
+The `main` function is the entry point of our app:
+
+```go
+func main() {
+	broker := redis.New("testing")
+	service := services.NewBrokerService(broker)
+	service.Produce(domain.Message{Data: "Hello World"})
+
+	// service.Consume()
+}
+```
+
+As shown above, we have used the same name (`testing`) for our channel that we used along with the `SUBSCRIBE` command in the Redis CLI. The responsibility of the `service.Produce` is to publish a new message of type `domain.Message` to Redis; so by running the `make run` command inside the project folder, a new message will be published to the Redis channel as follows:
+
+```text
+1) "message"
+2) "testing"
+3) "{\"data\":\"Hello World\"}"
+```
+
+## Subscribe to A Channel
+
+As shown above, the `service.Consume()` line is commented out; in order to turn our app into a subscriber, we need to change the `main` function as follows:
+
+```go
+func main() {
+	broker := redis.New("testing")
+	service := services.NewBrokerService(broker)
+	// service.Produce(domain.Message{Data: "Hello World"})
+
+	service.Consume()
+}
+```
+
+Now we need to run the `make run` command inside the project folder; this time around the app does no exit because it needs to wait for incoming messages.  
+As the next step, we need to go to the Redis CLI and run the following command:
+
+```text
+127.0.0.1:6379> PUBLISH testing "Hello World"
+(integer) 1
+```
+
+By referring to the terminal window that the app is running in, we will see:
+
+```text
+$ make run
+Hello World
+```
+
+## How to Create Publisher And Subscriber Apps?
+
+As another approach, instead of using the Redis CLI in order to subscribe to a channel or publish messages in a channel, we can create two stand-alone apps and use them as a publisher and subscriber respectively. To start, let's create a Redis microservice called `publisher` using the following command:
+
+```text
+$ gopamin new -n publisher -t microservice -p redis
+```
+
+Then create the second one named `subscriber` as follows:
+
+```text
+$ gopamin new -n subscriber -t microservice -p redis
+```
+
+We do not need to change the `publisher` app at all; the `subscriber` though needs to get modified as follows:
+
+```go
+func main() {
+	broker := redis.New("testing")
+	service := services.NewBrokerService(broker)
+	service.Consume()
+}
+```
+
+As the final step, we need to open up two different terminal windows and cd into those projects then run the `make run` command for the `subscriber` and `publisher` respectively; inside the terminal window having to do with the `subscriber` app you will see:
+
+```text
+$ make run
+{"data":"Hello World"}
+```

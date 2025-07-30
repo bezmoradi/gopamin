@@ -1,0 +1,39 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+)
+
+type brokerService struct {
+	broker ports.MessageBrokerInterface
+}
+
+func NewBrokerService(broker ports.MessageBrokerInterface) *brokerService {
+	return &brokerService{broker: broker}
+}
+
+func (service brokerService) Produce(message domain.Message) error {
+	byteSlice, err := message.ToJson()
+	if err != nil {
+		return err
+	}
+
+	return service.broker.Produce(context.Background(), byteSlice)
+}
+
+func (service brokerService) Consume() error {
+	handler := func(value []byte) {
+		fmt.Println(string(value))
+	}
+
+	err := service.broker.Consume(context.Background(), handler)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

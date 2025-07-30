@@ -1,0 +1,27 @@
+package gin
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type router struct {
+	engine       *gin.Engine
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       gin.Default(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router *router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

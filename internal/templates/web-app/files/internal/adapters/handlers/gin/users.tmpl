@@ -1,0 +1,109 @@
+package gin
+
+import (
+	"html/template"
+	"net/http"
+	"path/filepath"
+
+	"github.com/gin-gonic/gin"
+)
+
+func (router *router) registerUserRoutes() {
+	r := router.engine.Group(router.globalPrefix)
+
+	r.GET("/", router.IndexHandler)
+	r.GET("/:id", router.ShowUserHandler)
+	r.POST("/", router.CreateUserHandler)
+	r.PUT("/:id", router.UpdateUserHandler)
+	r.DELETE("/:id", router.DeleteUserHandler)
+
+	router.engine.GET("/assets/*filepath", router.serveStaticFilesHandler)
+
+}
+
+func (router router) serveStaticFilesHandler(c *gin.Context) {
+	assetsDir := filepath.Join(router.rootDir, "assets")
+	c.File(filepath.Join(assetsDir, c.Param("filepath")))
+}
+
+func (router router) IndexHandler(c *gin.Context) {
+	result, err := router.service.Index()
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
+	tmpl, err := template.ParseFiles(usersHtmlFile)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	tmpl.Execute(c.Writer, result)
+}
+
+func (router router) ShowUserHandler(c *gin.Context) {
+	result, err := router.service.Show(c.Param("id"))
+	if err != nil {
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
+	tmpl, err := template.ParseFiles(userHtmlFile)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	tmpl.Execute(c.Writer, result)
+}
+
+func (router router) CreateUserHandler(c *gin.Context) {
+	var form struct {
+		Name string `form:"name"`
+	}
+
+	if err := c.ShouldBind(&form); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_, err := router.service.Create(form.Name)
+	if err != nil {
+		c.String(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+
+	c.Status(http.StatusCreated)
+}
+
+func (router router) UpdateUserHandler(c *gin.Context) {
+	var form struct {
+		Name string `form:"name"`
+	}
+
+	if err := c.ShouldBind(&form); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_, err := router.service.Update(c.Param("id"), form.Name)
+	if err != nil {
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (router router) DeleteUserHandler(c *gin.Context) {
+	_, err := router.service.Delete(c.Param("id"))
+	if err != nil {
+		c.String(http.StatusNotFound, err.Error())
+		return
+	}
+
+	c.Status(http.StatusOK)
+}

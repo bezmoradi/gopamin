@@ -1,0 +1,44 @@
+## API Guide
+
+By sending an HTTP GET request to the `http://localhost:8080/api/v1/users` endpoint, you'll get a successful response which shows no data simply because no user is added to the database.
+
+### Add A New User
+
+In order to add a new user, run the following curl command in the terminal:
+
+```text
+curl --location 'http://localhost:8080/api/v1/users' \
+--header 'Content-Type: application/json' \
+--data '{
+    "name": "John Doe"
+}'
+```
+
+Now by sending an HTTP GET request to the `http://localhost:8080/api/v1/users`, you'll see a user named John Doe in the response.
+
+### Fetch An Existing User 
+In order to fetch an existing user by ID, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
+
+```text
+curl --location 'http://localhost:8080/api/v1/users/<USER_ID>'
+```
+
+### Update An Existing User
+
+In order to update an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
+
+```text
+curl --location --request PUT 'http://localhost:8080/api/v1/users/<USER_ID>' \
+--header 'Content-Type: application/json' \
+--data '{
+    "name": "Jane Doe"
+}'
+```
+
+### Delete An Existing User
+
+In order to delete an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
+
+```text
+curl --location --request DELETE 'http://localhost:8080/api/v1/users/<USER_ID>'
+```

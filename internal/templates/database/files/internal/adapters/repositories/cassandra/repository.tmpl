@@ -1,0 +1,152 @@
+package cassandra
+
+import (
+	"context"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+	"os"
+
+	"github.com/gocql/gocql"
+)
+
+const tableName = "users"
+
+type connection struct {
+	session *gocql.Session
+	logger  ports.Logger
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	databaseHost := os.Getenv("CASSANDRA_HOST")
+
+	cluster := gocql.NewCluster(databaseHost)
+	cluster.Keyspace = "test_keyspace"
+
+	session, err := cluster.CreateSession()
+	if err != nil {
+		logger.Panic(err)
+	}
+
+	c := &connection{session: session, logger: logger}
+	err = c.CreateTable()
+	if err != nil {
+		logger.Panic(err)
+	}
+
+	return c
+}
+
+func (c *connection) CreateTable() error {
+	err := c.session.Query(
+		fmt.Sprintf(
+			"CREATE TABLE IF NOT EXISTS %v (id UUID PRIMARY KEY, name TEXT)",
+			tableName,
+		),
+	).Exec()
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	id := gocql.TimeUUID()
+	ctx := context.Background()
+	err := c.session.Query(
+		fmt.Sprintf(
+			"INSERT INTO %v (id, name) VALUES (?, ?)",
+			tableName,
+		),
+		id,
+		name,
+	).WithContext(ctx).Exec()
+
+	if err != nil {
+		return "", err
+	}
+
+	return id.String(), nil
+}
+
+func (c *connection) Update(id string, newName string) (string, error) {
+	ctx := context.Background()
+	err := c.session.Query(
+		fmt.Sprintf(
+			"UPDATE %v SET name = ? WHERE id = ?",
+			tableName,
+		),
+		newName,
+		id,
+	).WithContext(ctx).Exec()
+
+	if err != nil {
+		return "", err
+	}
+
+	return "", nil
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	ctx := context.Background()
+	err := c.session.Query(
+		fmt.Sprintf(
+			"DELETE FROM %v WHERE id = ?",
+			tableName,
+		),
+		id,
+	).WithContext(ctx).Exec()
+
+	if err != nil {
+		return "0", err
+	}
+
+	return "", nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	var user domain.User
+	ctx := context.Background()
+	err := c.session.Query(
+		fmt.Sprintf("SELECT id, name FROM %v WHERE id = ?", tableName),
+		id,
+	).WithContext(ctx).Consistency(gocql.One).Scan(&user.Id, &user.Name)
+
+	if err != nil {
+		if err == gocql.ErrNotFound {
+			return domain.User{}, fmt.Errorf("user not found with ID %v", id)
+		} else {
+			return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		}
+	}
+
+	return user, nil
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	var users []domain.User
+	ctx := context.Background()
+	scanner := c.session.Query(
+		fmt.Sprintf(
+			"SELECT * FROM %s",
+			tableName,
+		),
+	).WithContext(ctx).Iter().Scanner()
+
+	for scanner.Next() {
+		var user domain.User
+		err := scanner.Scan(&user.Id, &user.Name)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return []domain.User{}, err
+	}
+
+	return users, nil
+}

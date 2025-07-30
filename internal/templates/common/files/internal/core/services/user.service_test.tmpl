@@ -1,0 +1,179 @@
+package services
+
+import (
+	"errors"
+	"{{.Name}}/internal/adapters/repositories/mock"
+	"{{.Name}}/internal/core/domain"
+	"reflect"
+	"testing"
+)
+
+func TestCreate(t *testing.T) {
+	mockRepository := mock.MockRepository{}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should return an ID", func(t *testing.T) {
+		mockRepository.SpyOnInsert = func(name string) (string, error) {
+			return "1", nil
+		}
+
+		res, _ := us.Create("John")
+		if res != "1" {
+			t.Errorf("should return 1 but it returned %v", res)
+		}
+	})
+
+	t.Run("should return an error", func(t *testing.T) {
+		mockRepository.SpyOnInsert = func(name string) (string, error) {
+			return "0", errors.New("error inserting a new record")
+		}
+
+		res, err := us.Create("John")
+		if err == nil && res != "0" {
+			t.Error("should return error but it didn't")
+		}
+	})
+
+	t.Run("should return an error if name is empty", func(t *testing.T) {
+		_, err := us.Create("")
+		if err != nil && err.Error() != "name is required" {
+			t.Errorf("expected `name is required` but received %v", err.Error())
+		}
+	})
+}
+
+func TestUpdate(t *testing.T) {
+	mockRepository := mock.MockRepository{}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should return an ID", func(t *testing.T) {
+		mockRepository.SpyOnUpdate = func(id string, name string) (string, error) {
+			return "1", nil
+		}
+
+		res, _ := us.Update("1", "John")
+		if res != "1" {
+			t.Errorf("should return 1 but it returned %v", res)
+		}
+	})
+
+	t.Run("should return an error", func(t *testing.T) {
+		mockRepository.SpyOnUpdate = func(id string, name string) (string, error) {
+			return "0", errors.New("error updating a record")
+		}
+
+		res, err := us.Update("1", "John")
+		if err == nil && res != "0" {
+			t.Error("should return error but it didn't")
+		}
+	})
+
+	t.Run("should return an error if new name is empty", func(t *testing.T) {
+		_, err := us.Update("1", "")
+		if err != nil && err.Error() != "new name is required" {
+			t.Errorf("expected `new name is required` but received %v", err.Error())
+		}
+	})
+}
+
+func TestDelete(t *testing.T) {
+	mockRepository := mock.MockRepository{}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should return an ID", func(t *testing.T) {
+		mockRepository.SpyOnDelete = func(id string) (string, error) {
+			return "1", nil
+		}
+
+		res, _ := us.Delete("1")
+		if res != "1" {
+			t.Errorf("should return 1 but it returned %v", res)
+		}
+	})
+
+	t.Run("should return an error", func(t *testing.T) {
+		mockRepository.SpyOnDelete = func(id string) (string, error) {
+			return "0", errors.New("error deleting a record")
+		}
+
+		res, err := us.Delete("1")
+		if err == nil && res != "0" {
+			t.Error("should return error but it didn't")
+		}
+	})
+}
+
+func TestShow(t *testing.T) {
+	mockRepository := mock.MockRepository{}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should return user by ID", func(t *testing.T) {
+		user := domain.User{Id: "1", Name: "John"}
+		mockRepository.SpyOnFetch = func(id string) (domain.User, error) {
+			return user, nil
+		}
+
+		res, _ := us.Show("1")
+		if res.Id != "1" {
+			t.Errorf("should return 1 but it returned %v", res)
+		}
+	})
+
+	t.Run("should return an error", func(t *testing.T) {
+		mockRepository.SpyOnFetch = func(id string) (domain.User, error) {
+			return domain.User{}, errors.New("user not found")
+		}
+
+		_, err := us.Show("1")
+		if err == nil {
+			t.Error("should return error but it didn't")
+		}
+	})
+}
+
+func TestIndex(t *testing.T) {
+	mockRepository := mock.MockRepository{Users: []domain.User{}}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should return users", func(t *testing.T) {
+		expectedResult := []domain.User{
+			{Id: "1", Name: "John"},
+			{Id: "2", Name: "Jane"},
+		}
+
+		users := make(map[int]domain.User)
+		users[1] = expectedResult[0]
+		users[2] = expectedResult[1]
+
+		mockRepository.SpyOnFetchAll = func() ([]domain.User, error) {
+			return expectedResult, nil
+		}
+
+		result, _ := us.Index()
+		if !reflect.DeepEqual(result, expectedResult) {
+			t.Errorf("should return users but returned %v", result)
+		}
+	})
+
+	t.Run("should return an empty list", func(t *testing.T) {
+		mockRepository.SpyOnFetchAll = func() ([]domain.User, error) {
+			return []domain.User{}, nil
+		}
+
+		result, _ := us.Index()
+		if len(result) != 0 {
+			t.Errorf("should return 0 but received %v", len(result))
+		}
+	})
+
+	t.Run("should return an error", func(t *testing.T) {
+		mockRepository.SpyOnFetchAll = func() ([]domain.User, error) {
+			return []domain.User{}, errors.New("error fetching users")
+		}
+
+		_, err := us.Index()
+		if err == nil {
+			t.Error("should return an error by it didn't")
+		}
+	})
+}

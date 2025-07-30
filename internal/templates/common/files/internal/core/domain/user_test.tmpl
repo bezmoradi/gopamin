@@ -1,0 +1,37 @@
+package domain
+
+import "testing"
+
+func TestUserToJson(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  User
+		result string
+		err    error
+	}{
+		{
+			name:   "valid_input",
+			input:  User{Id: "1", Name: "John"},
+			result: `{"id":"1","name":"John"}`,
+			err:    nil,
+		},
+		{
+			name:   "input_with_empty_name",
+			input:  User{Id: "1"},
+			result: `{"id":"1"}`,
+			err:    nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := test.input.ToJson()
+			if err != nil && err != test.err {
+				t.Errorf("%s: expected error %v but got %v", test.name, test.err, err)
+			}
+			if result != test.result {
+				t.Errorf("%s: expected %v but got %v", test.name, test.result, result)
+			}
+		})
+	}
+}

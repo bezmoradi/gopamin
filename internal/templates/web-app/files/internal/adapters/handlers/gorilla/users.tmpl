@@ -1,0 +1,113 @@
+package gorilla
+
+import (
+	"net/http"
+	"path/filepath"
+	"text/template"
+
+	"github.com/gorilla/mux"
+)
+
+func (router router) registerUserRoutes() {
+	subrouter := router.engine.PathPrefix(router.globalPrefix).Subrouter()
+
+	subrouter.HandleFunc("", router.IndexHandler).Methods("GET")
+	subrouter.HandleFunc("/{id}", router.ShowUserHandler).Methods("GET")
+	subrouter.HandleFunc("", router.CreateUserHandler).Methods("POST")
+	subrouter.HandleFunc("/{id}", router.UpdateUserHandler).Methods("PUT")
+	subrouter.HandleFunc("/{id}", router.DeleteUserHandler).Methods("DELETE")
+
+	router.engine.PathPrefix("/assets/").Handler(
+		http.StripPrefix("/assets/", router.serveStaticFiles()),
+	)
+}
+
+func (router router) serveStaticFiles() http.Handler {
+	assetsDir := filepath.Join(router.rootDir, "assets")
+	return http.FileServer(http.Dir(assetsDir))
+}
+
+func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
+	result, err := router.service.Index()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
+	tmpl, err := template.ParseFiles(usersHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
+	result, err := router.service.Show(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
+	tmpl, err := template.ParseFiles(userHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Create(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Update(mux.Vars(r)["id"], name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	_, err := router.service.Delete(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

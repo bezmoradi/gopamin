@@ -1,0 +1,114 @@
+package graphql
+
+import (
+	"{{.Name}}/internal/core/ports"
+
+	"github.com/graphql-go/graphql"
+)
+
+func New(service ports.UserServiceInterface) graphql.Schema {
+	userType := graphql.NewObject(
+		graphql.ObjectConfig{
+			Name: "User",
+			Fields: graphql.Fields{
+				"id": &graphql.Field{
+					Type: graphql.String,
+				},
+				"name": &graphql.Field{
+					Type: graphql.String,
+				},
+			},
+		},
+	)
+
+	queryType := graphql.NewObject(
+		graphql.ObjectConfig{
+			Name: "Query",
+			Fields: graphql.Fields{
+				"user": &graphql.Field{
+					Type:        userType,
+					Description: "Get a user by id",
+					Args: graphql.FieldConfigArgument{
+						"id": &graphql.ArgumentConfig{
+							Type: graphql.String,
+						},
+					},
+					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+						id, ok := p.Args["id"].(string)
+						if ok {
+							return service.Show(id)
+						}
+						return nil, nil
+					},
+				},
+				"users": &graphql.Field{
+					Type:        graphql.NewList(userType),
+					Description: "Get user list",
+					Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+						return service.Index()
+					},
+				},
+			},
+		})
+
+	mutationType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Mutation",
+		Fields: graphql.Fields{
+			"create": &graphql.Field{
+				Type:        graphql.String,
+				Description: "Create a new user",
+				Args: graphql.FieldConfigArgument{
+					"name": &graphql.ArgumentConfig{
+						Type: graphql.NewNonNull(graphql.String),
+					},
+				},
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					return service.Create(params.Args["name"].(string))
+				},
+			},
+			"update": &graphql.Field{
+				Type:        graphql.String,
+				Description: "Update user by ID",
+				Args: graphql.FieldConfigArgument{
+					"id": &graphql.ArgumentConfig{
+						Type: graphql.NewNonNull(graphql.String),
+					},
+					"name": &graphql.ArgumentConfig{
+						Type: graphql.String,
+					},
+				},
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					id, _ := params.Args["id"].(string)
+					name, _ := params.Args["name"].(string)
+					return service.Update(id, name)
+
+				},
+			},
+			"delete": &graphql.Field{
+				Type:        graphql.String,
+				Description: "Delete user by ID",
+				Args: graphql.FieldConfigArgument{
+					"id": &graphql.ArgumentConfig{
+						Type: graphql.NewNonNull(graphql.String),
+					},
+				},
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					id, _ := params.Args["id"].(string)
+					return service.Delete(id)
+				},
+			},
+		},
+	})
+
+	schema, err := graphql.NewSchema(
+		graphql.SchemaConfig{
+			Query:    queryType,
+			Mutation: mutationType,
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	return schema
+}

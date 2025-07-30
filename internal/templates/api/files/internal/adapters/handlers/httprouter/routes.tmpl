@@ -1,0 +1,27 @@
+package httprouter
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+
+	"github.com/julienschmidt/httprouter"
+)
+
+type router struct {
+	engine       *httprouter.Router
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       httprouter.New(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

@@ -1,0 +1,96 @@
+package redis
+
+import (
+	"context"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+	"os"
+	"strconv"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+)
+
+const hashName = "users"
+
+type connection struct {
+	db *redis.Client
+	logger ports.Logger
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	databaseHost := os.Getenv("REDIS_HOST")
+	databasePort := os.Getenv("REDIS_PORT")
+
+	db := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%v:%v", databaseHost, databasePort),
+		Password: "",
+		DB:       0,
+	})
+
+	c := &connection{db: db, logger: logger}
+
+	return c
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	result := c.db.HDel(context.Background(), hashName, id)
+	deletedIdCount, err := result.Result()
+	if err != nil {
+		return "", err
+	}
+
+	return strconv.FormatInt(deletedIdCount, 10), nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	result, err := c.db.HGet(context.Background(), hashName, id).Result()
+	if err != nil {
+		return domain.User{}, err
+	}
+
+	return domain.User{Id: id, Name: result}, nil
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	result, err := c.db.HGetAll(context.Background(), hashName).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var users []domain.User
+	for id, name := range result {
+		users = append(users, domain.User{Id: id, Name: name})
+	}
+
+	return users, nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	id := uuid.New()
+	err := c.db.HSet(context.Background(), hashName, id.String(), name).Err()
+	if err != nil {
+		return "", err
+	}
+
+	return id.String(), nil
+}
+
+func (c *connection) Update(id string, value string) (string, error) {
+	currentValue, err := c.db.HGet(context.Background(), hashName, id).Result()
+	if err != nil {
+		return "", err
+	}
+
+	if currentValue == value {
+		return "0", nil
+	}
+
+	err = c.db.HSet(context.Background(), hashName, id, value).Err()
+	if err != nil {
+		return "", err
+	}
+
+	return "1", nil
+}

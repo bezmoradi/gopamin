@@ -1,0 +1,11 @@
+## How to Use The App?
+
+As described in [An Intro to The Clean Architecture](https://github.com/bezmoradi/gopamin?tab=readme-ov-file#an-intro-to-the-clean-architecture), every project generated using the Gopamin CLI tool employs this architectural pattern and this simple Hello World application is no exception.  
+Inside the `main` function located in the `cmd/main.go` file, you'll see an instance of the chosen database referred to as `db`. Additionally, an instance of `NewUserService` is assigned to the variable `us`, with the `db` variable being passed to it. Also an instance of the chosen logger called `logger` is added.    
+Inside this file, some helper functions such as `insert` are added in order to make running the CRUD operations a little bit easier. As an example, in order to add a new record to the database, uncomment `insert(us, "John Doe")` then run `make run` inside terminal as follows:
+
+```text
+$ make run
+```
+
+By the same token, you can comment/uncomment the other helper functions of `fetch`, `update`, `delete`, and `fetchAll` to execute different CRUD operations.

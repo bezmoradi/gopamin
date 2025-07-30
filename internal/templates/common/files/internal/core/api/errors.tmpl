@@ -1,0 +1,11 @@
+package api
+
+type ErrorMessageType string
+
+const (
+	NotFoundError             ErrorMessageType = "Not found"
+	RequiredField             ErrorMessageType = "Required field"
+	FailedToReadRequestBody   ErrorMessageType = "Failed to read request body"
+	FailedToEncodeBodyPayload ErrorMessageType = "Failed to encode body payload"
+	DatabaseOperationFailure  ErrorMessageType = "Database operation failure"
+)

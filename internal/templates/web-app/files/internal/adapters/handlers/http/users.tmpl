@@ -1,0 +1,109 @@
+package http
+
+import (
+	"fmt"
+	"html/template"
+	"net/http"
+	"path/filepath"
+)
+
+func (router router) registerUserRoutes() {
+	router.engine.HandleFunc(fmt.Sprintf("GET %v", router.globalPrefix), router.IndexHandler)
+	router.engine.HandleFunc(fmt.Sprintf("GET %v/{id}", router.globalPrefix), router.ShowUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("POST %v", router.globalPrefix), router.CreateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("PUT %v/{id}", router.globalPrefix), router.UpdateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("DELETE %v/{id}", router.globalPrefix), router.DeleteUserHandler)
+
+	router.engine.Handle("GET /assets/", router.serveStaticFiles())
+}
+
+func (router router) serveStaticFiles() http.Handler {
+	assetsDir := filepath.Join(router.rootDir, "assets")
+	return http.StripPrefix("/assets/", http.FileServer(http.Dir(assetsDir)))
+}
+
+func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Create(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	_, err := router.service.Delete(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
+	result, err := router.service.Index()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
+	tmpl, err := template.ParseFiles(usersHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
+	result, err := router.service.Show(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
+
+	tmpl, err := template.ParseFiles(userHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Update(r.PathValue("id"), name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

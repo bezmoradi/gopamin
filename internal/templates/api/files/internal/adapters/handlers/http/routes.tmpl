@@ -1,0 +1,25 @@
+package http
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+)
+
+type router struct {
+	engine       *http.ServeMux
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       http.NewServeMux(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+	return router.engine
+}

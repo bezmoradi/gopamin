@@ -1,0 +1,28 @@
+package echo
+
+import (
+	"{{.Name}}/internal/core/ports"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+)
+
+type router struct {
+	engine       *echo.Echo
+	globalPrefix string
+	service      ports.UserServiceInterface
+}
+
+func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+	return &router{
+		engine:       echo.New(),
+		globalPrefix: "/api/v1",
+		service:      service,
+	}
+}
+
+func (router router) Register() http.Handler {
+	router.registerUserRoutes()
+
+	return router.engine
+}

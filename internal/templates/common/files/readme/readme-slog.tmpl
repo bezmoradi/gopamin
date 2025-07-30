@@ -1,0 +1,15 @@
+## Logger Guide
+
+The built-in `slog` package is used for logging purposes and it can be used as follows:
+
+```go
+logger := slog.New()
+```
+
+The `New` function gets an optional `fileName` param:
+
+```go
+logger := slog.New("logs.txt")
+```
+
+The name of the log file is arbitrary but if the `logs.txt` name is selected, it will be ignored by Git by default. If a file name is passed, instead of `os.Stdout` which is the default option, all logs will be written to the selected file which will be created at the root path of the project.

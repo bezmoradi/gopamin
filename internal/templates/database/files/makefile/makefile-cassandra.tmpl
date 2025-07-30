@@ -1,0 +1,9 @@
+# Manage Cassandra Container
+cassandra-up:
+	@docker compose up -d
+
+cassandra-down:
+	@docker compose down
+
+cassandra-down-rm-vol:
+	@docker compose down -v

@@ -1,0 +1,25 @@
+## MariaDB Setup
+
+Since this project incorporates database integration, you must adhere to the following instructions before running the app.  
+A `docker-compose.yml` file is included in this project which will be used for creating a MariaDB container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
+
+### Run A MariaDB Container
+
+First, make sure Docker is up and running on your machine. Then in the root path of the project run the following command:
+
+```text
+$ make mariadb-up
+```
+
+In order to stop the container, you can run the following command:
+
+```text
+$ make mariadb-down
+```
+
+Although it stops the container, still the volume related to the previously-created container exits and if you run `make mariadb-up` again, you have access to persisted data if any.  
+In order to stop the container and at the same time remove the volume related to that container, you can run the following command:
+
+```text
+$ make mariadb-down-rm-vol
+```

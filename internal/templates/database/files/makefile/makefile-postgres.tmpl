@@ -1,0 +1,9 @@
+# Manage Postgres Container
+postgres-up:
+	@docker compose up -d
+
+postgres-down:
+	@docker compose down
+
+postgres-down-rm-vol:
+	@docker compose down -v

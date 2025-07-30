@@ -1,0 +1,236 @@
+package httprouter
+
+import (
+	"html/template"
+	"net/http"
+	"path/filepath"
+
+	"github.com/julienschmidt/httprouter"
+)
+
+func (router router) registerUserRoutes() {
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix, router.IndexHandler)
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix+"/:id", router.ShowUserHandler)
+	router.engine.HandlerFunc(http.MethodPost, router.globalPrefix, router.CreateUserHandler)
+	router.engine.HandlerFunc(http.MethodPut, router.globalPrefix+"/:id", router.UpdateUserHandler)
+	router.engine.HandlerFunc(http.MethodDelete, router.globalPrefix+"/:id", router.DeleteUserHandler)
+	router.engine.ServeFiles("/assets/*filepath", http.Dir(filepath.Join(router.rootDir, "assets")))
+}
+
+func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Create(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+	params := httprouter.ParamsFromContext(r.Context())
+	_, err := router.service.Delete(params.ByName("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
+	result, err := router.service.Index()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
+	tmpl, err := template.ParseFiles(usersHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
+	params := httprouter.ParamsFromContext(r.Context())
+	result, err := router.service.Show(params.ByName("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
+
+	tmpl, err := template.ParseFiles(userHtmlFile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+	params := httprouter.ParamsFromContext(r.Context())
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.Form.Get("name")
+
+	_, err = router.service.Update(params.ByName("id"), name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+// 	var response api.Response
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	body, err := io.ReadAll(r.Body)
+// 	if err != nil {
+// 		response := api.Response{Error: api.FailedToReadRequestBody}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	var requestBody map[string]interface{}
+// 	err = json.Unmarshal(body, &requestBody)
+// 	if err != nil {
+// 		response := api.Response{Error: api.FailedToEncodeBodyPayload}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	name, _ := requestBody["name"].(string)
+// 	result, err := router.service.Create(name)
+// 	if err != nil {
+// 		response := api.Response{Message: err.Error(), Error: api.RequiredField}
+// 		w.WriteHeader(http.StatusUnprocessableEntity)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	response = api.Response{Message: "Created user successfully", Data: result}
+// 	json.NewEncoder(w).Encode(response)
+// }
+
+// func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+// 	var response api.Response
+// 	params := httprouter.ParamsFromContext(r.Context())
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	rowsEffected, err := router.service.Delete(params.ByName("id"))
+// 	if err != nil {
+// 		response = api.Response{Message: err.Error(), Error: api.DatabaseOperationFailure}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	if rowsEffected > "0" {
+// 		response = api.Response{
+// 			Message: fmt.Sprintf("deleted user with ID of %v successfully", params.ByName("id")),
+// 		}
+// 	} else {
+// 		response = api.Response{
+// 			Message: fmt.Sprintf("no user found with ID of %v", params.ByName("id")),
+// 		}
+// 	}
+
+// 	json.NewEncoder(w).Encode(response)
+// }
+
+// func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
+// 	var response api.Response
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	result, err := router.service.Index()
+// 	if err != nil {
+// 		response = api.Response{Message: err.Error(), Error: api.DatabaseOperationFailure}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	response = api.Response{
+// 		Message: "Fetched users successfully",
+// 		Data:    result,
+// 	}
+// 	json.NewEncoder(w).Encode(response)
+// }
+
+// func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
+// 	params := httprouter.ParamsFromContext(r.Context())
+// 	var response api.Response
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	result, err := router.service.Show(params.ByName("id"))
+// 	if err != nil {
+// 		response = api.Response{Message: err.Error(), Error: api.NotFoundError}
+// 	} else {
+// 		response = api.Response{Message: "Fetched user successfully", Data: result}
+// 	}
+
+// 	json.NewEncoder(w).Encode(response)
+// }
+
+// func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+// 	var response api.Response
+// 	params := httprouter.ParamsFromContext(r.Context())
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	body, err := io.ReadAll(r.Body)
+// 	if err != nil {
+// 		response := api.Response{Error: api.FailedToReadRequestBody}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	var requestBody map[string]interface{}
+// 	err = json.Unmarshal(body, &requestBody)
+// 	if err != nil {
+// 		response := api.Response{Error: api.FailedToEncodeBodyPayload}
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	name, _ := requestBody["name"].(string)
+// 	result, err := router.service.Update(params.ByName("id"), name)
+// 	if err != nil {
+// 		response := api.Response{Message: err.Error(), Error: api.RequiredField}
+// 		w.WriteHeader(http.StatusUnprocessableEntity)
+// 		json.NewEncoder(w).Encode(response)
+// 		return
+// 	}
+
+// 	response = api.Response{Message: "User updated successfully", Data: result}
+// 	json.NewEncoder(w).Encode(response)
+// }

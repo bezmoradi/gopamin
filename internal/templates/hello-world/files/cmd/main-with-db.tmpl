@@ -1,0 +1,91 @@
+package main
+
+import (
+	"{{.Name}}/configs"
+	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
+	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
+	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/services"
+	"fmt"
+)
+
+func init() {
+	configs.LoadEnv()
+}
+
+func insert(us ports.UserServiceInterface, logger ports.Logger, value string) {
+	lastInsertID, err := us.Create(value)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	logger.Info(fmt.Sprintf("last inserted ID: %v", lastInsertID))
+}
+
+func fetch(us ports.UserServiceInterface, logger ports.Logger, id string) {
+	user, err := us.Show(id)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	json, err := user.ToJson()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	logger.Info(json)
+}
+
+func update(us ports.UserServiceInterface, logger ports.Logger, id string, newName string) {
+	rowsAffected, err := us.Update(id, newName)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+}
+
+func delete(us ports.UserServiceInterface, logger ports.Logger, id string) {
+	rowsAffected, err := us.Delete(id)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+}
+
+func fetchAll(us ports.UserServiceInterface, logger ports.Logger) {
+	users, err := us.Index()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	for _, user := range users {
+		json, err := user.ToJson()
+		if err != nil {
+			logger.Fatal(err)
+		}
+		logger.Info(json)
+	}
+}
+
+/*
+🇵​​​​​🇱​​​​​🇪​​​​​🇦​​​​​🇸​​​​​🇪​​​​​ 🇨​​​​​🇴​​​​​🇳​​​​​🇸​​​​​🇺​​​​​🇱​​​​​🇹​​​​​ 🇹​​​​​🇭​​​​​🇪​​​​​ 🇷​​​​​🇪​​​​​🇦​​​​​🇩​​​​​🇲​​​​​🇪​​​​​.🇲​​​​​🇩​​​​​ 🇫​​​​​🇮​​​​​🇱​​​​​🇪​​​​​ 🇫​​​​​🇴​​​​​🇷​​​​​ 🇬​​​​​🇺​​​​​🇮​​​​​🇩​​​​​🇦​​​​​🇳​​​​​🇨​​​​​🇪​​​​​
+*/
+
+func main() {
+	logger := {{.Logger}}.New()
+	db := {{.Database}}.New(logger)
+	us := services.NewUserService(db)
+
+	// Step 1) Uncomment the following line to add new values to the DB
+	// insert(us, logger, "John Doe")
+
+	// Step 2) Uncomment the following line to fetch by ID
+	// fetch(us, logger, "<record_id>")
+
+	// Step 3) Uncomment the following line to update
+	// update(us, logger, "<record_id>", "Jane Doe")
+
+	// Step 4) Uncomment the following line to delete
+	// delete(us, logger, "<record_id>")
+
+	fetchAll(us, logger)
+}

@@ -1,0 +1,36 @@
+# Project {{.Name}}
+
+Here is the guide on how to use the **{{.Name}}** project.
+
+## Run The App
+
+By default, a `Makefile` is added to this project which can be used for running most-used commands. To run this app using the `make` tool, run the following command in the terminal:
+
+```text
+$ make run
+```
+
+You can also use the `go run` command in order to run your app as follows:
+
+```text
+$ go run ./cmd/main.go
+```
+
+As the `main.go` file, which is considered the entry point of the app, resides inside the `cmd` folder, while using the `go run` command, you need to pass the full path as above.
+
+## Run The Tests
+
+As with running the app, you have the option to use the `make` tool or employing the Golang's native commands. To run the tests using the `make` tool, run the following command in the terminal:
+
+```text
+$ make test
+```
+
+Running the following command will yield identical functionality:
+
+```text
+$ go test -v ./...
+```
+
+The `-v` flag is used here in order to output test details while running the tests.  
+Another testing command is also added to the `Makefile` called `test-cover` which will create a text file called `test-coverage.txt` at the root path of the project then open up a new browser tab showing the test coverage results.

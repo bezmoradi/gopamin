@@ -1,0 +1,86 @@
+package mock
+
+import (
+	"{{.Name}}/internal/core/domain"
+	"errors"
+
+	"github.com/google/uuid"
+)
+
+type MockRepository struct {
+	Users         []domain.User
+	SpyOnInsert   func(name string) (string, error)
+	SpyOnUpdate   func(id string, name string) (string, error)
+	SpyOnDelete   func(id string) (string, error)
+	SpyOnFetch    func(id string) (domain.User, error)
+	SpyOnFetchAll func() ([]domain.User, error)
+}
+
+func (m *MockRepository) Insert(name string) (string, error) {
+	if m.SpyOnInsert != nil {
+		return m.SpyOnInsert(name)
+	}
+
+	id := uuid.New()
+	m.Users = append(m.Users, domain.User{Id: id.String(), Name: name})
+
+	return id.String(), nil
+}
+
+func (m *MockRepository) Update(id string, name string) (string, error) {
+	if m.SpyOnUpdate != nil {
+		return m.SpyOnUpdate(id, name)
+	}
+
+	for index, u := range m.Users {
+		if id == u.Id {
+			m.Users[index].Name = name
+			break
+		}
+	}
+
+	return "1", nil
+}
+
+func (m *MockRepository) Delete(id string) (string, error) {
+	if m.SpyOnDelete != nil {
+		return m.SpyOnDelete(id)
+	}
+
+	for index, u := range m.Users {
+		if id == u.Id {
+			m.Users = append(m.Users[:index], m.Users[index+1:]...)
+			break
+		}
+	}
+
+	return "1", nil
+}
+
+func (m *MockRepository) Fetch(id string) (domain.User, error) {
+	if m.SpyOnFetch != nil {
+		return m.SpyOnFetch(id)
+	}
+
+	user := domain.User{}
+	for _, u := range m.Users {
+		if id == u.Id {
+			user = u
+			break
+		}
+	}
+
+	if user.Id == "" {
+		return domain.User{}, errors.New("user not found with ID "+id)
+	}
+
+	return user, nil
+}
+
+func (m *MockRepository) FetchAll() ([]domain.User, error) {
+	if m.SpyOnFetchAll != nil {
+		return m.SpyOnFetchAll()
+	}
+
+	return m.Users, nil
+}

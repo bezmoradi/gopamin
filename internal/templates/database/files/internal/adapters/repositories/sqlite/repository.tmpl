@@ -1,0 +1,128 @@
+package sqlite
+
+import (
+	"database/sql"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+	"os"
+	"strconv"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+const tableName = "users"
+
+type connection struct {
+	db *sql.DB
+	logger ports.Logger
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	dburl := os.Getenv("SQLITE_DB_URL")
+	db, err := sql.Open("sqlite3", dburl)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	c := &connection{db: db, logger: logger}
+	c.CreateTable()
+
+	return c
+}
+
+func (c *connection) CreateTable() error {
+	_, err := c.db.Exec(
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %v (id INTEGER NOT NULL PRIMARY KEY, name TEXT)",
+			tableName,
+		),
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	result, err := c.db.Exec(fmt.Sprintf("INSERT INTO %v (name) VALUES ('%v')", tableName, name))
+	if err != nil {
+		return "", nil
+	}
+
+	lastInsertID, _ := result.LastInsertId()
+
+	return strconv.FormatInt(lastInsertID, 10), nil
+}
+
+func (c *connection) Update(id string, newName string) (string, error) {
+	result, err := c.db.Exec(
+		fmt.Sprintf("UPDATE %v SET name = ? WHERE id = ?", tableName),
+		newName,
+		id,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	return strconv.FormatInt(rowsAffected, 10), nil
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	result, err := c.db.Exec(
+		fmt.Sprintf("DELETE FROM %v WHERE id = ?", tableName),
+		id,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	return strconv.FormatInt(rowsAffected, 10), nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	var user domain.User
+	row := c.db.QueryRow(
+		fmt.Sprintf(
+			"SELECT * FROM %s WHERE id = ?",
+			tableName,
+		),
+		id,
+	)
+
+	if err := row.Scan(&user.Id, &user.Name); err != nil {
+		if err == sql.ErrNoRows {
+			return domain.User{}, fmt.Errorf("user not found with ID %s", id)
+		} else {
+			return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		}
+	}
+
+	return user, nil
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	var users []domain.User
+	rows, err := c.db.Query(
+		fmt.Sprintf("SELECT id, name FROM %v", tableName),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var user domain.User
+		err := rows.Scan(&user.Id, &user.Name)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}

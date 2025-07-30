@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  cassandra:
+    image: cassandra:latest
+    ports:
+      - "${CASSANDRA_PORT}:9042"
+    volumes:
+      - cassandra_volume:/var/lib/cassandra
+
+volumes:
+  cassandra_volume:

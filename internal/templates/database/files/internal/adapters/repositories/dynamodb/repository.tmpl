@@ -1,0 +1,225 @@
+package dynamodb
+
+import (
+	"context"
+	"fmt"
+	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/ports"
+	"os"
+	"strconv"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/google/uuid"
+)
+
+const tableName = "users"
+
+type dynamodbUser struct {
+	ID   string `json:"id" dynamodbav:"id"`
+	Name string `json:"name" dynamodbav:"firstName"`
+}
+
+type connection struct {
+	db *dynamodb.Client
+	logger ports.Logger
+}
+
+func mapDynamodbToUser(d dynamodbUser) domain.User {
+	return domain.User{
+		Id:   d.ID,
+		Name: d.Name,
+	}
+}
+
+func New(logger ports.Logger) ports.UserRepositoryInterface {
+	databaseAccessKeyID := os.Getenv("DYNAMODB_ACCESS_KEY_ID")
+	databaseSecretAccessKey := os.Getenv("DYNAMODB_SECRET_ACCESS_KEY")
+	databaseSessionToken := os.Getenv("DYNAMODB_SESSION_TOKEN")
+	databaseHost := os.Getenv("DYNAMODB_HOST")
+	databaseRegion := os.Getenv("DYNAMODB_REGION")
+	databasePort, err := strconv.Atoi(os.Getenv("DYNAMODB_PORT"))
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(databaseRegion),
+		config.WithEndpointResolver(aws.EndpointResolverFunc(
+			func(service, region string) (aws.Endpoint, error) {
+				return aws.Endpoint{URL: fmt.Sprintf("%v:%d", databaseHost, databasePort)}, nil
+			})),
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
+				AccessKeyID: databaseAccessKeyID, SecretAccessKey: databaseSecretAccessKey, SessionToken: databaseSessionToken,
+			},
+		}),
+	)
+	if err != nil {
+		logger.Panic(err)
+	}
+
+	c := &connection{db: dynamodb.NewFromConfig(cfg), logger: logger}
+	c.CreateTable()
+
+	return c
+}
+
+func (c *connection) CreateTable() error {
+	tables, err := c.db.ListTables(context.TODO(), &dynamodb.ListTablesInput{})
+	if err != nil {
+		return err
+	}
+	for _, n := range tables.TableNames {
+		if n == tableName {
+			return nil
+		}
+	}
+
+	_, err = c.db.CreateTable(context.TODO(), &dynamodb.CreateTableInput{
+		AttributeDefinitions: []types.AttributeDefinition{
+			{
+				AttributeName: aws.String("id"),
+				AttributeType: types.ScalarAttributeTypeS,
+			},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String("id"),
+				KeyType:       types.KeyTypeHash,
+			},
+		},
+		TableName:   aws.String(tableName),
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *connection) Insert(name string) (string, error) {
+	id := uuid.New()
+
+	item := map[string]types.AttributeValue{
+		"id":        &types.AttributeValueMemberS{Value: id.String()},
+		"firstName": &types.AttributeValueMemberS{Value: name},
+	}
+	_, err := c.db.PutItem(context.TODO(), &dynamodb.PutItemInput{
+		TableName:           aws.String(tableName),
+		Item:                item,
+		ConditionExpression: aws.String("attribute_not_exists(PK)"),
+		ReturnValues:        "ALL_OLD",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return id.String(), nil
+}
+
+func (c *connection) Update(id, updatedName string) (string, error) {
+	updateExpression := "SET firstName = :updatedName"
+	expressionAttributeValues := map[string]types.AttributeValue{
+		":updatedName": &types.AttributeValueMemberS{Value: updatedName},
+	}
+
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: id},
+		},
+		UpdateExpression:          aws.String(updateExpression),
+		ExpressionAttributeValues: expressionAttributeValues,
+		ConditionExpression:       aws.String("attribute_exists(id)"),
+		ReturnValues:              "ALL_NEW",
+	}
+
+	result, err := c.db.UpdateItem(context.TODO(), input)
+	if err != nil {
+		return "", fmt.Errorf("item not found with ID %s", id)
+	}
+
+	primaryKey := result.Attributes["id"].(*types.AttributeValueMemberS)
+
+	return primaryKey.Value, nil
+}
+
+func (c *connection) Delete(id string) (string, error) {
+	input := &dynamodb.DeleteItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: id},
+		},
+		ReturnValues: "ALL_OLD",
+	}
+
+	result, err := c.db.DeleteItem(context.TODO(), input)
+	if err != nil {
+		return "", err
+	}
+
+	if len(result.Attributes) == 0 {
+		return "", fmt.Errorf("item not found with ID %s", id)
+	}
+
+	return id, nil
+}
+
+func (c *connection) Fetch(id string) (domain.User, error) {
+	input := &dynamodb.GetItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: id},
+		},
+	}
+
+	result, err := c.db.GetItem(context.TODO(), input)
+	if err != nil {
+		return domain.User{}, err
+	}
+
+	if len(result.Item) == 0 {
+		return domain.User{}, fmt.Errorf("user not found with ID %s", id)
+	}
+
+	var user dynamodbUser
+	err = attributevalue.UnmarshalMap(result.Item, &user)
+	if err != nil {
+		return domain.User{}, err
+	}
+
+	return mapDynamodbToUser(user), nil
+}
+
+func (c *connection) FetchAll() ([]domain.User, error) {
+	var users []domain.User
+
+	input := &dynamodb.ScanInput{
+		TableName: aws.String(tableName),
+	}
+
+	paginator := dynamodb.NewScanPaginator(c.db, input)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+		for _, item := range page.Items {
+			var user dynamodbUser
+			err := attributevalue.UnmarshalMap(item, &user)
+			if err != nil {
+				return nil, err
+			}
+			users = append(users, mapDynamodbToUser(user))
+		}
+	}
+
+	return users, nil
+}
