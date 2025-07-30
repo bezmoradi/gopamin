@@ -6,7 +6,7 @@ import (
 	"regexp"
 )
 
-const ENV_URL = "https://raw.githubusercontent.com/gopamin/gopamin/master/internal/commands/constants.go"
+const ENV_URL = "https://raw.githubusercontent.com/bezmoradi/gopamin/main/internal/commands/constants.go"
 
 func versionChecker() (bool, string) {
 	res, err := http.Get(ENV_URL)
