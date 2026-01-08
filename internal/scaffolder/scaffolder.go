@@ -30,6 +30,7 @@ func New(projectType, platform, name, database, logger string) {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("Unable to get your current working directory")
+		return
 	}
 
 	projectPath := filepath.Join(currentDir, alphanumericName)
@@ -64,6 +65,7 @@ func IsProjectNameTaken(name string) bool {
 		dirEntries, err := os.ReadDir(name)
 		if err != nil {
 			log.Println("Could not read the directory")
+			return true
 		}
 		if len(dirEntries) > 0 {
 			return true
