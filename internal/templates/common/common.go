@@ -18,6 +18,44 @@ func MakefileTemplate() ([]byte, string) {
 	return makefile, "Makefile"
 }
 
+//go:embed files/docker-makefile.tmpl
+var dockerMakefile []byte
+
+// DockerMakefileTemplate renders the generic `docker-*` make targets, appended to
+// the Makefile for any project that ships a containerized backend (a database
+// and/or a broker). The targets are backend-agnostic because the merged
+// docker-compose.yml already contains every service.
+func DockerMakefileTemplate() ([]byte, string) {
+	return dockerMakefile, "Makefile"
+}
+
+//go:embed files/docker-compose.tmpl
+var dockerCompose []byte
+
+// DockerComposeTemplate renders a single docker-compose.yml that contains every
+// containerized backend the project uses (database and/or broker), assembled by
+// conditionals on .Database and .Broker.
+func DockerComposeTemplate() ([]byte, string) {
+	return dockerCompose, "docker-compose.yml"
+}
+
+//go:embed files/internal/core/ports/event-publisher.interface.tmpl
+var eventPublisherInterface []byte
+
+func EventPublisherInterfaceTemplate() ([]byte, string) {
+	return eventPublisherInterface, "internal/core/ports/event-publisher.interface.go"
+}
+
+//go:embed files/internal/core/services/user.service-broker.tmpl
+var userServiceBroker []byte
+
+// UserServiceBrokerTemplate renders to the same path as UserServiceTemplate, so
+// when a broker is selected the builder generates it after buildDatabase to
+// replace the plain user service with the publisher-aware variant.
+func UserServiceBrokerTemplate() ([]byte, string) {
+	return userServiceBroker, "internal/core/services/user.service.go"
+}
+
 //go:embed files/readme/readme.tmpl
 var readme []byte
 
@@ -65,6 +103,13 @@ var gitIgnore []byte
 
 func GitIgnoreTemplate() ([]byte, string) {
 	return gitIgnore, ".gitignore"
+}
+
+//go:embed files/AGENTS.tmpl
+var agents []byte
+
+func AgentsTemplate() ([]byte, string) {
+	return agents, "AGENTS.md"
 }
 
 //go:embed files/internal/adapters/repositories/mock/repository.tmpl
@@ -130,18 +175,18 @@ func LoggerInterfaceTemplate() ([]byte, string) {
 	return loggerInferface, "internal/core/ports/logger.interface.go"
 }
 
-//go:embed files/internal/core/api/errors.tmpl
+//go:embed files/internal/adapters/api/errors.tmpl
 var apiErrors []byte
 
 func ApiErrorsTemplate() ([]byte, string) {
-	return apiErrors, "internal/core/api/errors.go"
+	return apiErrors, "internal/adapters/api/errors.go"
 }
 
-//go:embed files/internal/core/api/response.tmpl
+//go:embed files/internal/adapters/api/response.tmpl
 var apiResponse []byte
 
 func ApiResponseTemplate() ([]byte, string) {
-	return apiResponse, "internal/core/api/response.go"
+	return apiResponse, "internal/adapters/api/response.go"
 }
 
 //go:embed files/configs/configs.tmpl

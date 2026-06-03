@@ -5,4 +5,10 @@ test:
 	@go test -v ./...
 
 test-cover:
-	@go test ./... -coverprofile test-coverage.txt && go tool cover -html=test-coverage.txt 
+	@go test ./... -coverprofile test-coverage.txt && go tool cover -html=test-coverage.txt
+
+fix:
+	@go fix ./...
+
+fix-check:
+	@go fix -diff ./...

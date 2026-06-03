@@ -1,5 +1,5 @@
 package commands
 
-const VERSION = "v1.0.2"
-const UPDATE_MESSAGE = `Add safety checks if the directory on user's local machine cannot be found.
+const VERSION = "v1.0.3"
+const UPDATE_MESSAGE = `Refactoring and trivial bug fixes.
 To support this project, please give it a ⭐`

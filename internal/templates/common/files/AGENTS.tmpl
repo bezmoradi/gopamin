@@ -1,0 +1,60 @@
+# AGENTS.md
+
+Guidance for AI coding agents (and humans) working in **{{.Name}}** — a {{.ProjectType}} project scaffolded by [Gopamin](https://github.com/bezmoradi/gopamin) using the Clean Architecture (Ports & Adapters) pattern.
+
+## The dependency rule
+
+Source-code dependencies point **inward only**:
+
+```
+cmd  →  adapters  →  services  →  ports  ←  domain
+```
+
+Inner layers must never import outer ones. Concretely:
+
+- `internal/core/domain/` — business entities and their invariants. **No** framework, database, or transport imports.
+- `internal/core/ports/` — interfaces that the core owns and the outside world implements.
+- `internal/core/services/` — use cases / business logic. Depend on **ports**, never on a concrete adapter.
+- `internal/adapters/` — the only place third-party libraries live: HTTP/GraphQL handlers, repositories, message brokers, and loggers that implement the ports.
+- `cmd/` — the composition root: it constructs concrete adapters, injects them into services, and starts the process.
+
+### Adding a feature
+1. Define or extend the interface in `internal/core/ports/`.
+2. Put the business logic in `internal/core/services/` (depending only on ports).
+3. Implement the adapter under the matching `internal/adapters/...` package.
+
+Never import an `internal/adapters/...` package from `internal/core/...`.
+
+## This project's stack
+{{- if eq .ProjectType "worker"}}
+- Type: worker (broker-driven, no HTTP server)
+- Message broker: `{{.Broker}}` — adapter in `internal/adapters/brokers/{{.Broker}}`
+{{- else}}
+{{- if ne .ProjectType "hello-world"}}
+- HTTP framework: `{{.Platform}}` — handlers in `internal/adapters/handlers/{{.Platform}}`
+{{- end}}
+{{- if eq .Database "mock"}}
+- Datastore: in-memory mock (`internal/adapters/repositories/mock`); no database was selected, so this is **not** durable and is not safe for production persistence.
+{{- else if ne .Database ""}}
+- Database: `{{.Database}}` — repository in `internal/adapters/repositories/{{.Database}}`
+{{- end}}
+{{- end}}
+- Logger: `{{.Logger}}` — adapter in `internal/adapters/loggers/{{.Logger}}`
+
+## Build, run, and test
+
+```bash
+make run         # run the application
+make test        # run the test suite
+make test-cover  # run tests and open an HTML coverage report
+make fix         # apply Go 1.26 modernizers (go fix)
+make fix-check   # preview modernizer fixes without applying (go fix -diff)
+```
+
+Configuration comes from environment variables loaded from `.env` (see that file for the keys this project expects).
+
+## Conventions
+- Keep everything under `internal/core/**` free of framework, database, and HTTP imports.
+- Adapters translate between the outside world and domain types; they hold no business rules.
+- Co-locate tests (`*_test.go`); the service layer is unit-tested against the in-memory mock repository.
+- Run `gofmt`, `go vet ./...`, and `go fix ./...` (Go 1.26 modernizers; preview with `make fix-check`) before committing.

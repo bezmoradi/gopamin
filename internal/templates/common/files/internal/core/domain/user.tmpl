@@ -1,6 +1,16 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
+
+// Sentinel errors let adapters classify failures so HTTP handlers can map them
+// to the correct status code without leaking driver internals to clients.
+var (
+	ErrUserNotFound = errors.New("user not found")
+	ErrNameRequired = errors.New("name is required")
+)
 
 type User struct {
 	Id   string `json:"id"`

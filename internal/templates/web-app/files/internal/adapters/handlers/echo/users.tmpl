@@ -2,10 +2,12 @@ package echo
 
 import (
 	"html/template"
+	"io/fs"
 	"net/http"
-	"path/filepath"
 
-	"github.com/labstack/echo/v4"
+	"{{.Name}}/internal/web"
+
+	"github.com/labstack/echo/v5"
 )
 
 func (router router) registerUserRoutes() {
@@ -17,40 +19,37 @@ func (router router) registerUserRoutes() {
 	group.PUT("/:id", router.UpdateUserHandler)
 	group.DELETE("/:id", router.DeleteUserHandler)
 
-	router.engine.GET("/assets/*", router.serveStaticFilesHandler)
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	router.engine.GET("/assets/*", echo.WrapHandler(
+		http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS))),
+	))
 
 }
 
-func (router router) serveStaticFilesHandler(c echo.Context) error {
-	assetsDir := filepath.Join(router.rootDir, "assets")
-	return c.File(filepath.Join(assetsDir, c.Param("*")))
-}
-
-func (router router) CreateUserHandler(c echo.Context) error {
+func (router router) CreateUserHandler(c *echo.Context) error {
 	name := c.FormValue("name")
-	_, err := router.service.Create(name)
+	_, err := router.service.Create(c.Request().Context(), name)
 	if err != nil {
 		return c.String(http.StatusUnprocessableEntity, err.Error())
 	}
 	return c.NoContent(http.StatusCreated)
 }
 
-func (router *router) DeleteUserHandler(c echo.Context) error {
-	_, err := router.service.Delete(c.Param("id"))
+func (router *router) DeleteUserHandler(c *echo.Context) error {
+	_, err := router.service.Delete(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return c.String(http.StatusNotFound, err.Error())
 	}
 	return c.NoContent(http.StatusOK)
 }
 
-func (router *router) IndexHandler(c echo.Context) error {
-	result, err := router.service.Index()
+func (router *router) IndexHandler(c *echo.Context) error {
+	result, err := router.service.Index(c.Request().Context())
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
-	tmpl, err := template.ParseFiles(usersHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
@@ -58,14 +57,13 @@ func (router *router) IndexHandler(c echo.Context) error {
 	return tmpl.Execute(c.Response(), result)
 }
 
-func (router *router) ShowUserHandler(c echo.Context) error {
-	result, err := router.service.Show(c.Param("id"))
+func (router *router) ShowUserHandler(c *echo.Context) error {
+	result, err := router.service.Show(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return c.String(http.StatusNotFound, err.Error())
 	}
 
-	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
-	tmpl, err := template.ParseFiles(userHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
@@ -73,9 +71,9 @@ func (router *router) ShowUserHandler(c echo.Context) error {
 	return tmpl.Execute(c.Response(), result)
 }
 
-func (router *router) UpdateUserHandler(c echo.Context) error {
+func (router *router) UpdateUserHandler(c *echo.Context) error {
 	name := c.FormValue("name")
-	_, err := router.service.Update(c.Param("id"), name)
+	_, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
 	if err != nil {
 		return c.String(http.StatusNotFound, err.Error())
 	}

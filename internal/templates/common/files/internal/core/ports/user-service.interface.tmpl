@@ -1,11 +1,15 @@
 package ports
 
-import "{{.Name}}/internal/core/domain"
+import (
+	"context"
+
+	"{{.Name}}/internal/core/domain"
+)
 
 type UserServiceInterface interface {
-	Create(name string) (string, error)
-	Delete(id string) (string, error)
-	Index() ([]domain.User, error)
-	Show(id string) (domain.User, error)
-	Update(id string, name string) (string, error)
+	Create(ctx context.Context, name string) (string, error)
+	Delete(ctx context.Context, id string) (int64, error)
+	Index(ctx context.Context) ([]domain.User, error)
+	Show(ctx context.Context, id string) (domain.User, error)
+	Update(ctx context.Context, id string, name string) (int64, error)
 }

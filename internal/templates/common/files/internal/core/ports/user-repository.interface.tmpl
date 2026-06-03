@@ -1,11 +1,15 @@
 package ports
 
-import "{{.Name}}/internal/core/domain"
+import (
+	"context"
+
+	"{{.Name}}/internal/core/domain"
+)
 
 type UserRepositoryInterface interface {
-	Delete(id string) (string, error)
-	Fetch(id string) (domain.User, error)
-	FetchAll() ([]domain.User, error)
-	Insert(name string) (string, error)
-	Update(id string, value string) (string, error)
+	Delete(ctx context.Context, id string) (int64, error)
+	Fetch(ctx context.Context, id string) (domain.User, error)
+	FetchAll(ctx context.Context) ([]domain.User, error)
+	Insert(ctx context.Context, name string) (string, error)
+	Update(ctx context.Context, id string, value string) (int64, error)
 }

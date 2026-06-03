@@ -91,16 +91,16 @@ Hello World
 
 ## How to Create Publisher And Subscriber Apps?
 
-As another approach, instead of using the RabbitMQ CLI in order to subscribe to a queue or publish messages in a queue, we can create two stand-alone apps and use them as a publisher and subscriber respectively. To start, let's create a RabbitMQ microservice called `publisher` using the following command:
+As another approach, instead of using the RabbitMQ CLI in order to subscribe to a queue or publish messages in a queue, we can create two stand-alone apps and use them as a publisher and subscriber respectively. To start, let's create a RabbitMQ worker called `publisher` using the following command:
 
 ```text
-$ gopamin new -n publisher -t microservice -p rabbitmq
+$ gopamin new -n publisher -t worker -b rabbitmq
 ```
 
 Then create the second one named `subscriber` as follows:
 
 ```text
-$ gopamin new -n subscriber -t microservice -p rabbitmq
+$ gopamin new -n subscriber -t worker -b rabbitmq
 ```
 
 We do not need to change the `publisher` app at all; the `subscriber` though needs to get modified as follows:

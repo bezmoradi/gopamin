@@ -89,16 +89,16 @@ Hello World
 
 ## How to Create Publisher And Subscriber Apps?
 
-As another approach, instead of using the Redis CLI in order to subscribe to a channel or publish messages in a channel, we can create two stand-alone apps and use them as a publisher and subscriber respectively. To start, let's create a Redis microservice called `publisher` using the following command:
+As another approach, instead of using the Redis CLI in order to subscribe to a channel or publish messages in a channel, we can create two stand-alone apps and use them as a publisher and subscriber respectively. To start, let's create a Redis worker called `publisher` using the following command:
 
 ```text
-$ gopamin new -n publisher -t microservice -p redis
+$ gopamin new -n publisher -t worker -b redis
 ```
 
 Then create the second one named `subscriber` as follows:
 
 ```text
-$ gopamin new -n subscriber -t microservice -p redis
+$ gopamin new -n subscriber -t worker -b redis
 ```
 
 We do not need to change the `publisher` app at all; the `subscriber` though needs to get modified as follows:

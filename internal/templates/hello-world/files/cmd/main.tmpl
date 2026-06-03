@@ -16,15 +16,12 @@ func projectName() string {
 	return os.Getenv("PROJECT_NAME")
 }
 
-func print(logger ports.Logger, message string) {
+func logMessage(logger ports.Logger, message string) {
 	logger.Info(message)
 }
 
-/*
-🇵​​​​​🇱​​​​​🇪​​​​​🇦​​​​​🇸​​​​​🇪​​​​​ 🇨​​​​​🇴​​​​​🇳​​​​​🇸​​​​​🇺​​​​​🇱​​​​​🇹​​​​​ 🇹​​​​​🇭​​​​​🇪​​​​​ 🇷​​​​​🇪​​​​​🇦​​​​​🇩​​​​​🇲​​​​​🇪​​​​​.🇲​​​​​🇩​​​​​ 🇫​​​​​🇮​​​​​🇱​​​​​🇪​​​​​ 🇫​​​​​🇴​​​​​🇷​​​​​ 🇬​​​​​🇺​​​​​🇮​​​​​🇩​​​​​🇦​​​​​🇳​​​​​🇨​​​​​🇪​​​​​
-*/
 
 func main() {
 	logger := {{.Logger}}.New()
-	print(logger, projectName())
+	logMessage(logger, projectName())
 }

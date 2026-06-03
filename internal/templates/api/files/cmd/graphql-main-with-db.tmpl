@@ -1,8 +1,14 @@
 package main
 
 import (
+	{{- if .Broker}}
+	"context"
+	{{- end}}
 	"{{.Name}}/cmd/server"
 	"{{.Name}}/configs"
+	{{- if .Broker}}
+	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
+	{{- end}}
 	"{{.Name}}/internal/adapters/handlers/{{.Platform}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
 	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
@@ -13,14 +19,30 @@ func init() {
 	configs.LoadEnv()
 }
 
-/*
-🇵​​​​​🇱​​​​​🇪​​​​​🇦​​​​​🇸​​​​​🇪​​​​​ 🇨​​​​​🇴​​​​​🇳​​​​​🇸​​​​​🇺​​​​​🇱​​​​​🇹​​​​​ 🇹​​​​​🇭​​​​​🇪​​​​​ 🇷​​​​​🇪​​​​​🇦​​​​​🇩​​​​​🇲​​​​​🇪​​​​​.🇲​​​​​🇩​​​​​ 🇫​​​​​🇮​​​​​🇱​​​​​🇪​​​​​ 🇫​​​​​🇴​​​​​🇷​​​​​ 🇬​​​​​🇺​​​​​🇮​​​​​🇩​​​​​🇦​​​​​🇳​​​​​🇨​​​​​🇪​​​​​
-*/
-
 func main() {
 	logger := {{.Logger}}.New()
-	db := {{.Database}}.New(logger)
+	db, err := {{.Database}}.New(logger)
+	if err != nil {
+		logger.Fatal(err)
+	}
+{{- if .Broker}}
+	broker, err := {{.Broker}}.New("testing", logger)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer func() { _ = broker.Close() }()
+
+	service := services.NewUserService(db).WithPublisher(broker)
+
+	// Consumer side: process events off the broker alongside the HTTP server.
+	go func() {
+		_ = broker.Consume(context.Background(), func(value []byte) {
+			logger.Info("event received", "payload", string(value))
+		})
+	}()
+{{- else}}
 	service := services.NewUserService(db)
+{{- end}}
 	schema := {{.Platform}}.New(service)
 	server.Serve(schema, logger)
 }

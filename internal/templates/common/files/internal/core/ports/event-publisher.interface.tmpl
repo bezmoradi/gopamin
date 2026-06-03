@@ -1,0 +1,9 @@
+package ports
+
+import "context"
+
+// EventPublisher is the outbound port a service uses to emit domain events. The
+// message-broker adapter (Kafka, RabbitMQ, or Redis) implements it.
+type EventPublisher interface {
+	Produce(ctx context.Context, value []byte) error
+}

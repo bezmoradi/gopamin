@@ -3,9 +3,11 @@ package chi
 import (
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
-	"path/filepath"
 	"strings"
+
+	"{{.Name}}/internal/web"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,7 +25,7 @@ func (router router) registerUserRoutes() {
 }
 
 func (router router) serveStaticFiles() {
-	assetsDir := filepath.Join(router.rootDir, "assets")
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
 	path := "/assets"
 	if path != "/" && path[len(path)-1] != '/' {
 		router.engine.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
@@ -34,8 +36,8 @@ func (router router) serveStaticFiles() {
 	router.engine.Get(path, func(w http.ResponseWriter, r *http.Request) {
 		rctx := chi.RouteContext(r.Context())
 		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
-		fs := http.StripPrefix(pathPrefix, http.FileServer(http.Dir(assetsDir)))
-		fs.ServeHTTP(w, r)
+		handler := http.StripPrefix(pathPrefix, http.FileServer(http.FS(assetsFS)))
+		handler.ServeHTTP(w, r)
 	})
 }
 
@@ -48,7 +50,7 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	_, err = router.service.Create(name)
+	_, err = router.service.Create(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -57,23 +59,22 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	_, err := router.service.Delete(chi.URLParam(r, "id"))
+	_, err := router.service.Delete(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Index()
+	result, err := router.service.Index(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
-	tmpl, err := template.ParseFiles(usersHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -87,15 +88,13 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Show(chi.URLParam(r, "id"))
+	result, err := router.service.Show(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
-
-	tmpl, err := template.ParseFiles(userHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -117,7 +116,7 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	_, err = router.service.Update(chi.URLParam(r, "id"), name)
+	_, err = router.service.Update(r.Context(), chi.URLParam(r, "id"), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

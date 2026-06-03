@@ -85,16 +85,16 @@ Hello World
 
 ## How to Create Producer And Consumer Apps?
 
-As another approach, instead of using the Kafka CLI in order to consume a topic or produce messages in a topic, we can create two stand-alone apps and use them as a producer and consumer respectively. To start, let's create a Kafka microservice called `proeducer` using the following command:
+As another approach, instead of using the Kafka CLI in order to consume a topic or produce messages in a topic, we can create two stand-alone apps and use them as a producer and consumer respectively. To start, let's create a Kafka worker called `proeducer` using the following command:
 
 ```text
-$ gopamin new -n producer -t microservice -p kafka
+$ gopamin new -n producer -t worker -b kafka
 ```
 
 Then create the second one named `consumer` as follows:
 
 ```text
-$ gopamin new -n consumer -t microservice -p kafka
+$ gopamin new -n consumer -t worker -b kafka
 ```
 
 We do not need to change the `producer` app at all; the `consumer` though needs to get modified as follows:

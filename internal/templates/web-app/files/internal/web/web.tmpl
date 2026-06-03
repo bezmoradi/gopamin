@@ -1,0 +1,9 @@
+package web
+
+import "embed"
+
+// Assets holds the HTML templates and static files embedded into the binary so
+// the web app is fully self-contained and deploys without its source tree.
+//
+//go:embed assets
+var Assets embed.FS

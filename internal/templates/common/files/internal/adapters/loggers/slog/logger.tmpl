@@ -39,7 +39,7 @@ func (l logger) Error(message string, args ...any) {
 }
 
 func (l logger) Fatal(err error) {
-	l.logger.Info(err.Error())
+	l.logger.Error(err.Error())
 	os.Exit(1)
 }
 

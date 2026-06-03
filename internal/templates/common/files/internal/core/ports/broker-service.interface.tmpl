@@ -2,7 +2,7 @@ package ports
 
 import "{{.Name}}/internal/core/domain"
 
-type BrokerServierInterface interface {
+type BrokerServiceInterface interface {
 	Consume() error
 	Produce(message domain.Message) error
 }

@@ -11,25 +11,18 @@ func MicroserviceMainTemplate() ([]byte, string) {
 	return microserviceMain, "cmd/main.go"
 }
 
+//go:embed files/cmd/main-with-db.tmpl
+var workerMainWithDb []byte
+
+func WorkerMainWithDbTemplate() ([]byte, string) {
+	return workerMainWithDb, "cmd/main.go"
+}
+
 //go:embed files/env/env-kafka.tmpl
 var kafkaMicroserviceEnv []byte
 
 func KafkaMicroserviceEnvTemplate() ([]byte, string) {
 	return kafkaMicroserviceEnv, ".env"
-}
-
-//go:embed files/docker-compose/docker-compose-kafka.tmpl
-var kafkaMicroserviceDockerCompose []byte
-
-func KafkaMicroserviceDockerComposeTemplate() ([]byte, string) {
-	return kafkaMicroserviceDockerCompose, "docker-compose.yml"
-}
-
-//go:embed files/makefile/makefile-kafka.tmpl
-var kafkaMicroserviceMakefile []byte
-
-func KafkaMicroserviceMakefileTemplate() ([]byte, string) {
-	return kafkaMicroserviceMakefile, "Makefile"
 }
 
 //go:embed files/readme/readme-kafka.tmpl
@@ -53,20 +46,6 @@ func RabbitmqMicroserviceEnvTemplate() ([]byte, string) {
 	return rabbitmqMicroserviceEnv, ".env"
 }
 
-//go:embed files/docker-compose/docker-compose-rabbitmq.tmpl
-var rabbitmqMicroserviceDockerCompose []byte
-
-func RabbitmqMicroserviceDockerComposeTemplate() ([]byte, string) {
-	return rabbitmqMicroserviceDockerCompose, "docker-compose.yml"
-}
-
-//go:embed files/makefile/makefile-rabbitmq.tmpl
-var rabbitmqMicroserviceMakefile []byte
-
-func RabbitmqMicroserviceMakefileTemplate() ([]byte, string) {
-	return rabbitmqMicroserviceMakefile, "Makefile"
-}
-
 //go:embed files/readme/readme-rabbitmq.tmpl
 var rabbitmqMicroserviceReadme []byte
 
@@ -86,20 +65,6 @@ var redisMicroserviceEnv []byte
 
 func RedisMicroserviceEnvTemplate() ([]byte, string) {
 	return redisMicroserviceEnv, ".env"
-}
-
-//go:embed files/docker-compose/docker-compose-redis.tmpl
-var redisMicroserviceDockerCompose []byte
-
-func RedisMicroserviceDockerComposeTemplate() ([]byte, string) {
-	return redisMicroserviceDockerCompose, "docker-compose.yml"
-}
-
-//go:embed files/makefile/makefile-redis.tmpl
-var redisMicroserviceMakefile []byte
-
-func RedisMicroserviceMakefileTemplate() ([]byte, string) {
-	return redisMicroserviceMakefile, "Makefile"
 }
 
 //go:embed files/readme/readme-redis.tmpl

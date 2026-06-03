@@ -1,9 +1,0 @@
-# Manage Postgres Container
-dynamodb-up:
-	@docker compose up -d
-
-dynamodb-down:
-	@docker compose down
-
-dynamodb-down-rm-vol:
-	@docker compose down && rm -rf docker

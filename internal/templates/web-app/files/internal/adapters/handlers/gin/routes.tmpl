@@ -2,7 +2,6 @@ package gin
 
 import (
 	"{{.Name}}/internal/core/ports"
-	"{{.Name}}/tools"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,20 +10,13 @@ import (
 type router struct {
 	engine       *gin.Engine
 	globalPrefix string
-	rootDir      string
 	service      ports.UserServiceInterface
 }
 
 func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
-	rootDir, err := tools.FindRootDir()
-	if err != nil {
-		panic(err)
-	}
-
 	return &router{
 		engine:       gin.Default(),
 		globalPrefix: "/users",
-		rootDir:      rootDir,
 		service:      service,
 	}
 }

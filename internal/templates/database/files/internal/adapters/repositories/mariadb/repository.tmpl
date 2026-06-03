@@ -1,7 +1,9 @@
 package mariadb
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
@@ -18,7 +20,7 @@ type connection struct {
 	logger ports.Logger
 }
 
-func New(logger ports.Logger) ports.UserRepositoryInterface {
+func New(logger ports.Logger) (*connection, error) {
 	databaseName := os.Getenv("MARIADB_DATABASE")
 	databasePassword := os.Getenv("MARIADB_PASSWORD")
 	databaseUsername := os.Getenv("MARIADB_USERNAME")
@@ -37,16 +39,18 @@ func New(logger ports.Logger) ports.UserRepositoryInterface {
 		),
 	)
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 	db.SetConnMaxLifetime(0)
 	db.SetMaxIdleConns(50)
 	db.SetMaxOpenConns(50)
 
 	c := &connection{db: db, logger: logger}
-	c.CreateTable()
+	if err := c.CreateTable(); err != nil {
+		return nil, err
+	}
 
-	return c
+	return c, nil
 }
 
 func (c *connection) CreateTable() error {
@@ -63,8 +67,9 @@ func (c *connection) CreateTable() error {
 	return nil
 }
 
-func (c *connection) Insert(name string) (string, error) {
-	result, err := c.db.Exec(
+func (c *connection) Insert(ctx context.Context, name string) (string, error) {
+	result, err := c.db.ExecContext(
+		ctx,
 		fmt.Sprintf(
 			"INSERT INTO %s (name) VALUES (?)",
 			tableName,
@@ -80,8 +85,14 @@ func (c *connection) Insert(name string) (string, error) {
 	return strconv.FormatInt(lastInsertID, 10), nil
 }
 
-func (c *connection) Update(id string, newName string) (string, error) {
-	result, err := c.db.Exec(
+func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return 0, nil
+	}
+
+	result, err := c.db.ExecContext(
+		ctx,
 		fmt.Sprintf(
 			"UPDATE %s SET name = ? WHERE id = ?",
 			tableName,
@@ -90,16 +101,22 @@ func (c *connection) Update(id string, newName string) (string, error) {
 		id,
 	)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 
-	return strconv.FormatInt(rowsAffected, 10), nil
+	return rowsAffected, nil
 }
 
-func (c *connection) Delete(id string) (string, error) {
-	result, err := c.db.Exec(
+func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return 0, nil
+	}
+
+	result, err := c.db.ExecContext(
+		ctx,
 		fmt.Sprintf(
 			"DELETE FROM %s WHERE id = ?",
 			tableName,
@@ -107,47 +124,53 @@ func (c *connection) Delete(id string) (string, error) {
 		id,
 	)
 	if err != nil {
-		return "0", err
+		return 0, err
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 
-	return strconv.FormatInt(rowsAffected, 10), nil
+	return rowsAffected, nil
 }
 
-func (c *connection) Fetch(id string) (domain.User, error) {
+func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+
 	var user domain.User
-	row := c.db.QueryRow(
+	row := c.db.QueryRowContext(
+		ctx,
 		fmt.Sprintf(
-			"SELECT * FROM %s WHERE id = ?",
+			"SELECT id, name FROM %s WHERE id = ?",
 			tableName,
 		),
 		id,
 	)
 
 	if err := row.Scan(&user.Id, &user.Name); err != nil {
-		if err == sql.ErrNoRows {
-			return domain.User{}, fmt.Errorf("user not found with ID %v", id)
-		} else {
-			return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.User{}, domain.ErrUserNotFound
 		}
+		return domain.User{}, fmt.Errorf("error fetching data: %v", err)
 	}
 
 	return user, nil
 }
 
-func (c *connection) FetchAll() ([]domain.User, error) {
+func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
-	rows, err := c.db.Query(
+	rows, err := c.db.QueryContext(
+		ctx,
 		fmt.Sprintf(
-			"SELECT * FROM %s",
+			"SELECT id, name FROM %s",
 			tableName,
 		),
 	)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var user domain.User

@@ -2,275 +2,71 @@ package scaffolder
 
 import "fmt"
 
-type webAppHttpBuilder struct {
-	project *Project
+// webRecipe captures what varies between web-app platforms.
+type webRecipe struct {
+	routes   string
+	users    string
+	packages []string
 }
 
-func (b *webAppHttpBuilder) build() {
+var webRecipes = map[string]webRecipe{
+	"http":       {"web-app-http-routes", "web-app-http-users", nil},
+	"chi":        {"web-app-chi-routes", "web-app-chi-users", []string{"github.com/go-chi/chi/v5"}},
+	"echo":       {"web-app-echo-routes", "web-app-echo-users", []string{"github.com/labstack/echo/v5"}},
+	"gin":        {"web-app-gin-routes", "web-app-gin-users", []string{"github.com/gin-gonic/gin"}},
+	"gorilla":    {"web-app-gorilla-routes", "web-app-gorilla-users", []string{"github.com/gorilla/mux"}},
+	"httprouter": {"web-app-httprouter-routes", "web-app-httprouter-users", []string{"github.com/julienschmidt/httprouter"}},
+}
+
+func buildWebApp(p *Project) {
+	recipe := webRecipes[p.Platform]
 	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
+	readme := []string{"readme", p.Logger + "-readme"}
 	makefile := []string{"makefile"}
 
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
+	database := p.Database
+	if database == "" {
+		database = "mock"
+		fileGenerator([]string{"web-app-main"}, p)
 		readme = append(readme, "web-app-readme")
 	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+		fileGenerator([]string{"web-app-main-with-db"}, p)
+		readme = append(readme, database+"-readme", "web-app-readme-with-db")
+		env = append(env, database+"-env")
 	}
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-http-routes"}, b.project)
-	fileGenerator([]string{"web-app-http-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppChiBuilder struct {
-	project *Project
-}
-
-func (b *webAppChiBuilder) build() {
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	if hasContainerizedBackend(p) {
+		makefile = append(makefile, "docker-makefile")
+	}
+	if p.Broker != "" {
+		env = append(env, p.Broker+"-microservice-env")
 	}
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-chi-routes"}, b.project)
-	fileGenerator([]string{"web-app-chi-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/go-chi/chi/v5"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppEchoBuilder struct {
-	project *Project
-}
-
-func (b *webAppEchoBuilder) build() {
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	buildDatabase(p, database)
+	buildLogger(p)
+	if p.Broker != "" {
+		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
+		goGetPackages(p.Path, workerRecipes[p.Broker])
 	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-echo-routes"}, b.project)
-	fileGenerator([]string{"web-app-echo-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/labstack/echo/v4"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppGinBuilder struct {
-	project *Project
-}
-
-func (b *webAppGinBuilder) build() {
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	fileGenerator(env, p)
+	fileGenerator(readme, p)
+	fileGenerator(makefile, p)
+	if hasContainerizedBackend(p) {
+		fileGenerator([]string{"docker-compose"}, p)
 	}
+	fileGenerator([]string{"configs"}, p)
+	fileGenerator([]string{"configs-test"}, p)
+	fileGenerator([]string{"tools"}, p)
+	fileGenerator([]string{"tools-test"}, p)
+	fileGenerator([]string{"web-app-server"}, p)
+	fileGenerator([]string{recipe.routes}, p)
+	fileGenerator([]string{recipe.users}, p)
+	fileGenerator([]string{"router-interface"}, p)
+	fileGenerator([]string{"web-app-styles"}, p)
+	fileGenerator([]string{"web-app-users-html-template"}, p)
+	fileGenerator([]string{"web-app-user-html-template"}, p)
+	fileGenerator([]string{"web-app-embed"}, p)
+	goGetPackages(p.Path, recipe.packages)
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-gin-routes"}, b.project)
-	fileGenerator([]string{"web-app-gin-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/gin-gonic/gin"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppGorillaBuilder struct {
-	project *Project
-}
-
-func (b *webAppGorillaBuilder) build() {
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
-	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-gorilla-routes"}, b.project)
-	fileGenerator([]string{"web-app-gorilla-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/gorilla/mux"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppHttprouterBuilder struct {
-	project *Project
-}
-
-func (b *webAppHttprouterBuilder) build() {
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"web-app-main"}, b.project)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "web-app-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
-	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"web-app-server"}, b.project)
-	fileGenerator([]string{"web-app-httprouter-routes"}, b.project)
-	fileGenerator([]string{"web-app-httprouter-users"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-	fileGenerator([]string{"web-app-styles"}, b.project)
-	fileGenerator([]string{"web-app-users-html-template"}, b.project)
-	fileGenerator([]string{"web-app-user-html-template"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/julienschmidt/httprouter"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type webAppBuilderFactory func(p *Project) boilerplateBuilder
-
-var webAppBuilderMap = map[string]webAppBuilderFactory{
-	"http": func(p *Project) boilerplateBuilder {
-		return &webAppHttpBuilder{p}
-	},
-	"chi": func(p *Project) boilerplateBuilder {
-		return &webAppChiBuilder{p}
-	},
-	"echo": func(p *Project) boilerplateBuilder {
-		return &webAppEchoBuilder{p}
-	},
-	"gin": func(p *Project) boilerplateBuilder {
-		return &webAppGinBuilder{p}
-	},
-	"gorilla": func(p *Project) boilerplateBuilder {
-		return &webAppGorillaBuilder{p}
-	},
-	"httprouter": func(p *Project) boilerplateBuilder {
-		return &webAppHttprouterBuilder{p}
-	},
+	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
 }

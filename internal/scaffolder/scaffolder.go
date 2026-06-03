@@ -3,6 +3,7 @@ package scaffolder
 import (
 	"bytes"
 	"fmt"
+	"go/format"
 	"log"
 	"os"
 	"os/exec"
@@ -11,20 +12,21 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/fatih/color"
 	"github.com/bezmoradi/gopamin/internal/templates"
+	"github.com/fatih/color"
 )
 
 type Project struct {
 	Database    string
 	Platform    string
+	Broker      string
 	Name        string
 	Path        string
 	ProjectType string
 	Logger      string
 }
 
-func New(projectType, platform, name, database, logger string) {
+func New(projectType, platform, broker, name, database, logger string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
@@ -44,18 +46,20 @@ func New(projectType, platform, name, database, logger string) {
 	p := Project{
 		Database:    database,
 		Platform:    platform,
+		Broker:      broker,
 		Name:        moduleName,
 		Path:        projectPath,
 		ProjectType: projectType,
 		Logger:      logger,
 	}
 
-	generateProjectAgnosticFiles(&p)
+	if err := generateProjectAgnosticFiles(&p); err != nil {
+		fmt.Printf("Error generating project: %v\n", err)
+		_ = os.RemoveAll(projectPath)
+		os.Exit(1)
+	}
 
-	builderFactory := buildersMap[p.ProjectType]
-	builder := builderFactory(&p)
-	director := &director{builder: builder}
-	director.construct()
+	buildersMap[p.ProjectType](&p)
 }
 
 func IsProjectNameTaken(name string) bool {
@@ -75,54 +79,67 @@ func IsProjectNameTaken(name string) bool {
 	return false
 }
 
-func generateProjectAgnosticFiles(p *Project) {
+func generateProjectAgnosticFiles(p *Project) error {
 	fileGenerator([]string{"gitignore"}, p)
 	fileGenerator([]string{"license"}, p)
+	fileGenerator([]string{"agents"}, p)
 
-	initGit(p.Path)
-	initGoMod(p.Name, p.Path)
-	goGetPackages(p.Path, []string{"github.com/joho/godotenv"})
+	if err := initGit(p.Path); err != nil {
+		return err
+	}
+	if err := initGoMod(p.Name, p.Path); err != nil {
+		return err
+	}
+
+	return goGetPackages(p.Path, []string{"github.com/joho/godotenv"})
 }
 
 func fileGenerator(fileTypes []string, p *Project) {
 	templateMapper := templates.Mapper()
-	var concatenatedContent string
+	var concatenatedContent strings.Builder
 	var fileName string
 
 	for _, fileType := range fileTypes {
 		fileTemplate, name := templateMapper[fileType]()
 		fileName = name
-		concatenatedContent += string(fileTemplate) + "\n\n"
+		concatenatedContent.WriteString(string(fileTemplate) + "\n\n")
 	}
 
 	dir := filepath.Dir(filepath.Join(p.Path, fileName))
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			fmt.Printf("Error creating directory: %s\n", err)
-
+			_ = os.RemoveAll(p.Path)
 			os.Exit(1)
 		}
 	}
 
-	file, err := os.Create(filepath.Join(p.Path, fileName))
+	tmpl := template.Must(
+		template.New(fileName).Parse(concatenatedContent.String()),
+	)
 
-	if err != nil {
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, p); err != nil {
 		fmt.Println(err)
+		_ = os.RemoveAll(p.Path)
 		os.Exit(1)
 	}
 
-	defer file.Close()
+	content := rendered.Bytes()
+	if strings.HasSuffix(fileName, ".go") {
+		formatted, err := format.Source(content)
+		if err != nil {
+			// Don't fail generation on a formatting error; surface it so the
+			// offending template can be fixed, and write the file unformatted.
+			fmt.Printf("warning: gofmt failed for %s: %v\n", fileName, err)
+		} else {
+			content = formatted
+		}
+	}
 
-	template := template.Must(
-		template.New(fileName).Parse(
-			string(concatenatedContent),
-		),
-	)
-
-	err = template.Execute(file, p)
-
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(p.Path, fileName), content, 0644); err != nil {
 		fmt.Println(err)
+		_ = os.RemoveAll(p.Path)
 		os.Exit(1)
 	}
 
@@ -130,33 +147,43 @@ func fileGenerator(fileTypes []string, p *Project) {
 }
 
 func executeCommand(name string, args []string, dir string) error {
-	var out bytes.Buffer
+	var stdout, stderr bytes.Buffer
 
 	command := exec.Command(name, args...)
 	command.Dir = dir
-	command.Stdout = &out
+	command.Stdout = &stdout
+	command.Stderr = &stderr
 
 	if err := command.Run(); err != nil {
-		return err
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, detail)
+		}
+		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 
 	return nil
 }
+
+// generatedGoVersion is the `go` directive stamped into every project Gopamin
+// scaffolds, so generated projects target a consistent Go version regardless of
+// the user's local toolchain. Keep it in lockstep with the `go` directive in
+// this repo's go.mod (and the README) whenever the supported Go version is bumped.
+const generatedGoVersion = "1.26.0"
 
 func initGoMod(projectName string, appDir string) error {
 	if err := executeCommand("go", []string{"mod", "init", projectName}, appDir); err != nil {
 		return err
 	}
 
+	if err := executeCommand("go", []string{"mod", "edit", "-go=" + generatedGoVersion}, appDir); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func initGit(appDir string) {
-	err := executeCommand("git", []string{"init"}, appDir)
-	if err != nil {
-		fmt.Printf("Error initializing git repo: %v", err)
-		os.Exit(1)
-	}
+func initGit(appDir string) error {
+	return executeCommand("git", []string{"init"}, appDir)
 }
 
 func goGetPackages(appDir string, packages []string) error {

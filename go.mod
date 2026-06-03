@@ -1,6 +1,6 @@
 module github.com/bezmoradi/gopamin
 
-go 1.22.0
+go 1.26.0
 
 require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect

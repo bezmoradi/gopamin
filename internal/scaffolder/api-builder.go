@@ -2,309 +2,90 @@ package scaffolder
 
 import "fmt"
 
-type graphqlBuilder struct {
-	project *Project
+// apiRecipe captures what varies between API platforms: the cmd/main and README
+// variants (with and without a database), the platform-specific files, and the
+// modules to fetch.
+type apiRecipe struct {
+	mainNoDB     string
+	mainWithDB   string
+	readmeNoDB   string
+	readmeWithDB string
+	files        []string
+	packages     []string
 }
 
-func (b *graphqlBuilder) build() {
+func restAPIRecipe(routes, users string, packages []string) apiRecipe {
+	return apiRecipe{
+		mainNoDB:     "api-main",
+		mainWithDB:   "api-main-with-db",
+		readmeNoDB:   "api-readme",
+		readmeWithDB: "api-readme-with-db",
+		files:        []string{"api-server", routes, users, "api-errors", "api-response", "router-interface"},
+		packages:     packages,
+	}
+}
+
+var apiRecipes = map[string]apiRecipe{
+	"echo":       restAPIRecipe("api-echo-routes", "api-echo-users", []string{"github.com/labstack/echo/v5"}),
+	"chi":        restAPIRecipe("api-chi-routes", "api-chi-users", []string{"github.com/go-chi/chi/v5"}),
+	"gin":        restAPIRecipe("api-gin-routes", "api-gin-users", []string{"github.com/gin-gonic/gin"}),
+	"httprouter": restAPIRecipe("api-httprouter-routes", "api-httprouter-users", []string{"github.com/julienschmidt/httprouter"}),
+	"gorilla":    restAPIRecipe("api-gorilla-routes", "api-gorilla-users", []string{"github.com/gorilla/mux"}),
+	"http":       restAPIRecipe("api-http-routes", "api-http-users", nil),
+	"graphql": {
+		mainNoDB:     "graphql-main",
+		mainWithDB:   "graphql-main-with-db",
+		readmeNoDB:   "graphql-readme",
+		readmeWithDB: "graphql-readme-with-db",
+		files:        []string{"graphql-server", "graphql-schema"},
+		packages:     []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"},
+	},
+}
+
+func buildAPI(p *Project) {
+	recipe := apiRecipes[p.Platform]
 	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
+	readme := []string{"readme", p.Logger + "-readme"}
 	makefile := []string{"makefile"}
 
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"graphql-main"}, b.project)
-		readme = append(readme, "graphql-readme")
+	database := p.Database
+	if database == "" {
+		database = "mock"
+		fileGenerator([]string{recipe.mainNoDB}, p)
+		readme = append(readme, recipe.readmeNoDB)
 	} else {
-		fileGenerator([]string{"graphql-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "graphql-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+		fileGenerator([]string{recipe.mainWithDB}, p)
+		readme = append(readme, database+"-readme", recipe.readmeWithDB)
+		env = append(env, database+"-env")
 	}
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"graphql-server"}, b.project)
-	fileGenerator([]string{"graphql-schema"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type echoBuilder struct {
-	project *Project
-}
-
-func (b *echoBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	if hasContainerizedBackend(p) {
+		makefile = append(makefile, "docker-makefile")
+	}
+	if p.Broker != "" {
+		env = append(env, p.Broker+"-microservice-env")
 	}
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-echo-routes"}, b.project)
-	fileGenerator([]string{"api-echo-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/labstack/echo/v4"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type chiBuilder struct {
-	project *Project
-}
-
-func (b *chiBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	buildDatabase(p, database)
+	buildLogger(p)
+	if p.Broker != "" {
+		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
+		goGetPackages(p.Path, workerRecipes[p.Broker])
 	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-chi-routes"}, b.project)
-	fileGenerator([]string{"api-chi-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/go-chi/chi/v5"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type ginBuilder struct {
-	project *Project
-}
-
-func (b *ginBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	fileGenerator(env, p)
+	fileGenerator(readme, p)
+	fileGenerator(makefile, p)
+	if hasContainerizedBackend(p) {
+		fileGenerator([]string{"docker-compose"}, p)
 	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-gin-routes"}, b.project)
-	fileGenerator([]string{"api-gin-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/gin-gonic/gin"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type httprouterBuilder struct {
-	project *Project
-}
-
-func (b *httprouterBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
+	fileGenerator([]string{"configs"}, p)
+	fileGenerator([]string{"configs-test"}, p)
+	fileGenerator([]string{"tools"}, p)
+	fileGenerator([]string{"tools-test"}, p)
+	for _, key := range recipe.files {
+		fileGenerator([]string{key}, p)
 	}
+	goGetPackages(p.Path, recipe.packages)
 
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-httprouter-routes"}, b.project)
-	fileGenerator([]string{"api-httprouter-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/julienschmidt/httprouter"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type gorillaBuilder struct {
-	project *Project
-}
-
-func (b *gorillaBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
-	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-gorilla-routes"}, b.project)
-	fileGenerator([]string{"api-gorilla-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/gorilla/mux"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type httpBuilder struct {
-	project *Project
-}
-
-func (b *httpBuilder) build() {
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", b.project.Logger + "-readme"}
-	makefile := []string{"makefile"}
-
-	if b.project.Database == "" {
-		b.project.Database = "mock"
-		fileGenerator([]string{"api-main"}, b.project)
-		readme = append(readme, "api-readme")
-	} else {
-		fileGenerator([]string{"api-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "api-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
-	}
-
-	dbSelector(b.project)
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"api-server"}, b.project)
-	fileGenerator([]string{"api-http-routes"}, b.project)
-	fileGenerator([]string{"api-http-users"}, b.project)
-	fileGenerator([]string{"api-errors"}, b.project)
-	fileGenerator([]string{"api-response"}, b.project)
-	fileGenerator([]string{"router-inferface"}, b.project)
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type apiBuilderFactory func(p *Project) boilerplateBuilder
-
-var apiBuilderMap = map[string]apiBuilderFactory{
-	"echo": func(p *Project) boilerplateBuilder {
-		return &echoBuilder{p}
-	},
-	"chi": func(p *Project) boilerplateBuilder {
-		return &chiBuilder{p}
-	},
-	"gin": func(p *Project) boilerplateBuilder {
-		return &ginBuilder{p}
-	},
-	"httprouter": func(p *Project) boilerplateBuilder {
-		return &httprouterBuilder{p}
-	},
-	"gorilla": func(p *Project) boilerplateBuilder {
-		return &gorillaBuilder{p}
-	},
-	"http": func(p *Project) boilerplateBuilder {
-		return &httpBuilder{p}
-	},
-	"graphql": func(p *Project) boilerplateBuilder {
-		return &graphqlBuilder{p}
-	},
+	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
 }

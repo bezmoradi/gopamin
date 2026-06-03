@@ -8,11 +8,19 @@ import (
 )
 
 type userService struct {
-	repo ports.UserRepositoryInterface
+	repo      ports.UserRepositoryInterface
+	publisher ports.EventPublisher
 }
 
 func NewUserService(repo ports.UserRepositoryInterface) *userService {
 	return &userService{repo: repo}
+}
+
+// WithPublisher attaches an event publisher so that writes emit domain events.
+// It is optional: a service constructed without one simply skips publishing.
+func (us *userService) WithPublisher(publisher ports.EventPublisher) *userService {
+	us.publisher = publisher
+	return us
 }
 
 func (us *userService) Index(ctx context.Context) ([]domain.User, error) {
@@ -28,7 +36,18 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 		return "", domain.ErrNameRequired
 	}
 
-	return us.repo.Insert(ctx, name)
+	id, err := us.repo.Insert(ctx, name)
+	if err != nil {
+		return "", err
+	}
+
+	if us.publisher != nil {
+		if err := us.publisher.Produce(ctx, []byte(name)); err != nil {
+			return "", err
+		}
+	}
+
+	return id, nil
 }
 
 func (us *userService) Update(ctx context.Context, id string, newName string) (int64, error) {

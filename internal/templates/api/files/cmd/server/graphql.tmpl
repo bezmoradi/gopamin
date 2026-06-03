@@ -1,9 +1,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
 	"{{.Name}}/internal/core/ports"
 
 	"github.com/graphql-go/graphql"
@@ -13,11 +18,38 @@ import (
 func Serve(schema graphql.Schema, logger ports.Logger) {
 	port := os.Getenv("PORT")
 	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
-	http.Handle("/graphql", handler.New(&handler.Config{
+
+	mux := http.NewServeMux()
+	mux.Handle("/graphql", handler.New(&handler.Config{
 		Schema:     &schema,
 		Pretty:     true,
 		GraphiQL:   false,
 		Playground: true,
 	}))
-	http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
+
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%s", port),
+		Handler:      mux,
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("graceful shutdown failed", "error", err)
+	}
 }

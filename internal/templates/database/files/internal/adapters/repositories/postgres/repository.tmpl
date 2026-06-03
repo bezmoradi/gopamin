@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
@@ -9,26 +10,27 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const tableName = "users"
 
 type connection struct {
-	db *pgx.Conn
+	db *pgxpool.Pool
 	logger ports.Logger
 }
 
-func New(logger ports.Logger) ports.UserRepositoryInterface {
+func New(logger ports.Logger) (*connection, error) {
 	databaseName := os.Getenv("POSTGRES_DATABASE")
 	databasePassword := os.Getenv("POSTGRES_PASSWORD")
 	databaseUsername := os.Getenv("POSTGRES_USERNAME")
 	databaseHost := os.Getenv("POSTGRES_HOST")
 	databasePort, err := strconv.Atoi(os.Getenv("POSTGRES_PORT"))
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 
-	db, err := pgx.Connect(
+	db, err := pgxpool.New(
 		context.Background(),
 		fmt.Sprintf(
 			"postgres://%v:%v@%v:%d/%v",
@@ -40,14 +42,15 @@ func New(logger ports.Logger) ports.UserRepositoryInterface {
 		),
 	)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Unable to connect to database: %v\n", err))
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
 
 	c := &connection{db: db, logger: logger}
-	c.CreateTable()
+	if err := c.CreateTable(); err != nil {
+		return nil, err
+	}
 
-	return c
+	return c, nil
 }
 
 func (c *connection) CreateTable() error {
@@ -65,10 +68,10 @@ func (c *connection) CreateTable() error {
 	return nil
 }
 
-func (c *connection) Insert(name string) (string, error) {
+func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	var insertedId int64
 	err := c.db.QueryRow(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(
 			"INSERT INTO %v (name) VALUES ($1) RETURNING id",
 			tableName,
@@ -82,9 +85,14 @@ func (c *connection) Insert(name string) (string, error) {
 	return strconv.FormatInt(insertedId, 10), nil
 }
 
-func (c *connection) Update(id string, newName string) (string, error) {
+func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return 0, nil
+	}
+
 	commandTag, err := c.db.Exec(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(
 			"UPDATE %v SET name = $1 WHERE id = $2",
 			tableName,
@@ -93,15 +101,20 @@ func (c *connection) Update(id string, newName string) (string, error) {
 		id,
 	)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	return strconv.FormatInt(commandTag.RowsAffected(), 10), nil
+	return commandTag.RowsAffected(), nil
 }
 
-func (c *connection) Delete(id string) (string, error) {
+func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return 0, nil
+	}
+
 	commandTag, err := c.db.Exec(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(
 			"DELETE FROM %v WHERE id = $1",
 			tableName,
@@ -109,17 +122,22 @@ func (c *connection) Delete(id string) (string, error) {
 		id,
 	)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	return strconv.FormatInt(commandTag.RowsAffected(), 10), nil
+	return commandTag.RowsAffected(), nil
 }
 
-func (c *connection) Fetch(id string) (domain.User, error) {
+func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+	// The id column is an integer; a non-numeric id can never match a row.
+	if _, err := strconv.Atoi(id); err != nil {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+
 	var user domain.User
 
 	err := c.db.QueryRow(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(
 			"SELECT id, name FROM %v WHERE id = $1",
 			tableName,
@@ -128,16 +146,19 @@ func (c *connection) Fetch(id string) (domain.User, error) {
 	).Scan(&user.Id, &user.Name)
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.User{}, domain.ErrUserNotFound
+		}
 		return domain.User{}, err
 	}
 
 	return user, nil
 }
 
-func (c *connection) FetchAll() ([]domain.User, error) {
+func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
 	rows, err := c.db.Query(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(
 			"SELECT id, name FROM %v",
 			tableName,

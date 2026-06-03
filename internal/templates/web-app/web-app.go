@@ -8,21 +8,28 @@ import (
 var webAppUsersHtmlTemplate []byte
 
 func WebAppUsersHtmlTemplateTemplate() ([]byte, string) {
-	return webAppUsersHtmlTemplate, "assets/users.html"
+	return webAppUsersHtmlTemplate, "internal/web/assets/users.html"
 }
 
 //go:embed files/assets/user.tmpl
 var webAppUserHtmlTemplate []byte
 
 func WebAppUserHtmlTemplateTemplate() ([]byte, string) {
-	return webAppUserHtmlTemplate, "assets/user.html"
+	return webAppUserHtmlTemplate, "internal/web/assets/user.html"
 }
 
 //go:embed files/assets/styles.tmpl
 var webAppStyles []byte
 
 func WebAppStylesTemplate() ([]byte, string) {
-	return webAppStyles, "assets/styles.css"
+	return webAppStyles, "internal/web/assets/styles.css"
+}
+
+//go:embed files/internal/web/web.tmpl
+var webAppEmbed []byte
+
+func WebAppEmbedTemplate() ([]byte, string) {
+	return webAppEmbed, "internal/web/web.go"
 }
 
 //go:embed files/env.tmpl

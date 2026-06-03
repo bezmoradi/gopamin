@@ -17,14 +17,10 @@ func New(fileName ...string) ports.Logger {
 		if err != nil {
 			panic(err)
 		}
-		l := log.Default()
-		l.SetOutput(file)
-		return logger{logger: l}
+		return logger{logger: log.New(file, "", log.LstdFlags)}
 	}
 
-	l := log.Default()
-	l.SetOutput(os.Stdout)
-	return logger{logger: l}
+	return logger{logger: log.New(os.Stdout, "", log.LstdFlags)}
 }
 
 func (l logger) Info(message string, args ...any) {
@@ -50,7 +46,7 @@ func (l logger) Panic(err error) {
 
 func prepareArgs(message string, logType string, args ...any) string {
 	if len(args)%2 != 0 {
-		panic("args must be key-value pairs")
+		args = args[:len(args)-1]
 	}
 	msg := fmt.Sprintf("%s %s", logType, message)
 	for i := 0; i < len(args); i += 2 {

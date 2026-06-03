@@ -17,15 +17,15 @@ func argsValidator() bool {
 	case projectType == "":
 		fmt.Println(`The -t flag is required. For more help, type "gopamin new -h"`)
 		return false
-	case noPlatfromForApiOrMicroservice():
-		fmt.Println(`The -p flag is required for projects of type "api", "web-app", and "microservice". For more help, type "gopamin new -h"`)
+	}
+
+	if !validateType() {
+		fmt.Println(`The specified value for the -t flag is wrong. For more help, type "gopamin new -h"`)
 		return false
 	}
 
-	flagAllowed, message := flagIsAllowedForTypes()
-	if !flagAllowed {
+	if ok, message := flagsAllowedForType(); !ok {
 		fmt.Println(message)
-
 		return false
 	}
 
@@ -34,23 +34,18 @@ func argsValidator() bool {
 		return false
 	}
 
-	if !validateType() {
-		fmt.Println(`The specified value for the -t flag is wrong. For more help, type "gopamin new -h"`)
+	if projectType == "api" && !apiFrameworkValidator() {
+		fmt.Println(`The specified value for the -f flag for "api" projects is wrong. For more help, type "gopamin new -h"`)
 		return false
 	}
 
-	if projectType == "web-app" && !webAppTypeValidator() {
-		fmt.Println(`The specified value for the -p flag for "web-app" type of apps is wrong. For more help, type "gopamin new -h"`)
+	if projectType == "web-app" && !webAppFrameworkValidator() {
+		fmt.Println(`The specified value for the -f flag for "web-app" projects is wrong. For more help, type "gopamin new -h"`)
 		return false
 	}
 
-	if projectType == "api" && !apiTypeValidator() {
-		fmt.Println(`The specified value for the -p flag for "api" type of apps is wrong. For more help, type "gopamin new -h"`)
-		return false
-	}
-
-	if projectType == "microservice" && !microserviceFrameworkValidator() {
-		fmt.Println(`The specified value for the -p flag for "microservice" type of apps is wrong. For more help, type "gopamin new -h"`)
+	if broker != "" && !brokerValidator() {
+		fmt.Println(`The specified value for the -b flag is wrong. For more help, type "gopamin new -h"`)
 		return false
 	}
 
@@ -59,7 +54,7 @@ func argsValidator() bool {
 		return false
 	}
 
-	if logger != "" && !loggerValidator() {
+	if !loggerValidator() {
 		fmt.Println(`The specified value for the -l flag is wrong. For more help, type "gopamin new -h"`)
 		return false
 	}
@@ -67,55 +62,63 @@ func argsValidator() bool {
 	return true
 }
 
-func noPlatfromForApiOrMicroservice() bool {
-	if (projectType == "microservice" || projectType == "api" || projectType == "web-app") && platform == "" {
-		return true
+// flagsAllowedForType enforces which capability flags each project type requires
+// or forbids: -f (HTTP framework) for api/web-app, -b (broker) for worker.
+func flagsAllowedForType() (bool, string) {
+	switch projectType {
+	case "hello-world":
+		if framework != "" {
+			return false, `The -f flag is not allowed for projects of type "hello-world"`
+		}
+		if broker != "" {
+			return false, `The -b flag is not allowed for projects of type "hello-world"`
+		}
+	case "api", "web-app":
+		if framework == "" {
+			return false, `The -f flag is required for projects of type "api" and "web-app"`
+		}
+	case "worker":
+		if framework != "" {
+			return false, `The -f flag is not allowed for projects of type "worker"`
+		}
+		if broker == "" {
+			return false, `The -b flag is required for projects of type "worker"`
+		}
 	}
-	return false
+
+	return true, ""
 }
 
 func validateType() bool {
-	if projectType == "hello-world" ||
-		projectType == "web-app" ||
-		projectType == "microservice" ||
-		projectType == "api" {
+	switch projectType {
+	case "hello-world", "web-app", "api", "worker":
 		return true
 	}
 
 	return false
 }
 
-func webAppTypeValidator() bool {
-	if platform == "echo" ||
-		platform == "chi" ||
-		platform == "gin" ||
-		platform == "http" ||
-		platform == "gorilla" ||
-		platform == "httprouter" {
+func webAppFrameworkValidator() bool {
+	switch framework {
+	case "echo", "chi", "gin", "http", "gorilla", "httprouter":
 		return true
 	}
 
 	return false
 }
 
-func apiTypeValidator() bool {
-	if platform == "echo" ||
-		platform == "chi" ||
-		platform == "gin" ||
-		platform == "http" ||
-		platform == "gorilla" ||
-		platform == "graphql" ||
-		platform == "httprouter" {
+func apiFrameworkValidator() bool {
+	switch framework {
+	case "echo", "chi", "gin", "http", "gorilla", "graphql", "httprouter":
 		return true
 	}
 
 	return false
 }
 
-func microserviceFrameworkValidator() bool {
-	if platform == "kafka" ||
-		platform == "rabbitmq" ||
-		platform == "redis" {
+func brokerValidator() bool {
+	switch broker {
+	case "kafka", "rabbitmq", "redis":
 		return true
 	}
 
@@ -123,15 +126,8 @@ func microserviceFrameworkValidator() bool {
 }
 
 func databaseValidator() bool {
-	if database == "mysql" ||
-		database == "postgres" ||
-		database == "mongodb" ||
-		database == "sqlite" ||
-		database == "dynamodb" ||
-		database == "badgerdb" ||
-		database == "mariadb" ||
-		database == "cassandra" ||
-		database == "redis" {
+	switch database {
+	case "mysql", "mariadb", "postgres", "mongodb", "sqlite", "dynamodb", "badgerdb", "cassandra":
 		return true
 	}
 
@@ -139,27 +135,10 @@ func databaseValidator() bool {
 }
 
 func loggerValidator() bool {
-	if logger == "log" ||
-		logger == "slog" ||
-		logger == "logrus" ||
-		logger == "zap" {
+	switch logger {
+	case "log", "slog", "logrus", "zap":
 		return true
 	}
 
 	return false
-}
-
-func flagIsAllowedForTypes() (bool, string) {
-	switch projectType {
-	case "hello-world":
-		if platform != "" {
-			return false, `The -p flag is not allowed for projects of type "hello-world"`
-		}
-	case "microservice":
-		if database != "" {
-			return false, `The -d flag is not allowed for projects of type "microservice"`
-		}
-	}
-
-	return true, ""
 }

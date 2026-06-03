@@ -5,4 +5,5 @@ import "context"
 type MessageBrokerInterface interface {
 	Consume(ctx context.Context, handler func(value []byte)) error
 	Produce(ctx context.Context, value []byte) error
+	Close() error
 }

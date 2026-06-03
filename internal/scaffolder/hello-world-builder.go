@@ -2,42 +2,36 @@ package scaffolder
 
 import "fmt"
 
-type helloWorldProjectBuilder struct {
-	project *Project
-}
-
-func (b *helloWorldProjectBuilder) build() {
-	readme := []string{"readme", b.project.Logger + "-readme"}
+func buildHelloWorld(p *Project) {
+	readme := []string{"readme", p.Logger + "-readme"}
 	makefile := []string{"makefile"}
 	env := []string{"env"}
 
-	if b.project.Database == "" {
-		fileGenerator([]string{"hello-world-main"}, b.project)
-		fileGenerator([]string{"hello-world-main-test"}, b.project)
+	if p.Database == "" {
+		fileGenerator([]string{"hello-world-main"}, p)
+		fileGenerator([]string{"hello-world-main-test"}, p)
 	} else {
-		fileGenerator([]string{"hello-world-main-with-db"}, b.project)
-		readme = append(readme, b.project.Database+"-readme", "hello-world-readme-with-db")
-		makefile = append(makefile, b.project.Database+"-makefile")
-		env = append(env, b.project.Database+"-env")
-		dbSelector(b.project)
+		fileGenerator([]string{"hello-world-main-with-db"}, p)
+		readme = append(readme, p.Database+"-readme", "hello-world-readme-with-db")
+		env = append(env, p.Database+"-env")
+		buildDatabase(p, p.Database)
 	}
 
-	loggerSelector(b.project)
-	fileGenerator(env, b.project)
-	fileGenerator(readme, b.project)
-	fileGenerator(makefile, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
+	if hasContainerizedBackend(p) {
+		makefile = append(makefile, "docker-makefile")
+	}
 
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
+	buildLogger(p)
+	fileGenerator(env, p)
+	fileGenerator(readme, p)
+	fileGenerator(makefile, p)
+	if hasContainerizedBackend(p) {
+		fileGenerator([]string{"docker-compose"}, p)
+	}
+	fileGenerator([]string{"configs"}, p)
+	fileGenerator([]string{"configs-test"}, p)
+	fileGenerator([]string{"tools"}, p)
+	fileGenerator([]string{"tools-test"}, p)
 
-type helloWorldBuilderFactory func(p *Project) boilerplateBuilder
-
-var helloWorldBuilderMap = map[string]helloWorldBuilderFactory{
-	"hello-world": func(p *Project) boilerplateBuilder {
-		return &helloWorldProjectBuilder{p}
-	},
+	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
 }

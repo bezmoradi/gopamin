@@ -6,7 +6,7 @@ import (
 	"{{.Name}}/internal/core/ports"
 	"os"
 
-	"github.com/streadway/amqp"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type rabbitmqBroker struct {
@@ -16,24 +16,24 @@ type rabbitmqBroker struct {
 	channelName string
 }
 
-func New(channelName string, logger ports.Logger) ports.MessageBrokerInterface {
+func New(channelName string, logger ports.Logger) (*rabbitmqBroker, error) {
 	user := os.Getenv("RABBITMQ_USER")
 	password := os.Getenv("RABBITMQ_PASSWORD")
 	port := os.Getenv("RABBITMQ_PORT")
 
 	conn, err := amqp.Dial(fmt.Sprintf("amqp://%v:%v@localhost:%v/", user, password, port))
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 
 	q, err := ch.QueueDeclare(channelName, false, false, false, false, nil)
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 
 	logger.Info("Successfully connected to RabbitMQ")
@@ -43,15 +43,19 @@ func New(channelName string, logger ports.Logger) ports.MessageBrokerInterface {
 		channel:     ch,
 		queue:       q,
 		channelName: channelName,
-	}
+	}, nil
 }
 
-func (r *rabbitmqBroker) Produce(_ context.Context, value []byte) error {
-	defer r.channel.Close()
-	defer r.connection.Close()
+func (r *rabbitmqBroker) Close() error {
+	if err := r.channel.Close(); err != nil {
+		return err
+	}
+	return r.connection.Close()
+}
 
-	err := r.channel.Publish("", r.channelName, false, false, amqp.Publishing{
-		ContentType: "test/plain",
+func (r *rabbitmqBroker) Produce(ctx context.Context, value []byte) error {
+	err := r.channel.PublishWithContext(ctx, "", r.channelName, false, false, amqp.Publishing{
+		ContentType: "text/plain",
 		Body:        value,
 	})
 	if err != nil {
@@ -61,22 +65,18 @@ func (r *rabbitmqBroker) Produce(_ context.Context, value []byte) error {
 	return nil
 }
 
-func (r *rabbitmqBroker) Consume(_ context.Context, handler func(value []byte)) error {
-	defer r.channel.Close()
-	defer r.connection.Close()
-
+func (r *rabbitmqBroker) Consume(ctx context.Context, handler func(value []byte)) error {
 	messages, err := r.channel.Consume(r.channelName, "", true, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 
-	mychan := make(chan bool)
 	go func() {
 		for msg := range messages {
 			handler([]byte(msg.Body))
 		}
 	}()
-	<-mychan
+	<-ctx.Done()
 
-	return nil
+	return ctx.Err()
 }

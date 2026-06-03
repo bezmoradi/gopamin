@@ -1,6 +1,8 @@
 package graphql
 
 import (
+	"errors"
+
 	"{{.Name}}/internal/core/ports"
 
 	"github.com/graphql-go/graphql"
@@ -35,17 +37,17 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					},
 					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 						id, ok := p.Args["id"].(string)
-						if ok {
-							return service.Show(id)
+						if !ok {
+							return nil, errors.New("id argument is required and must be a string")
 						}
-						return nil, nil
+						return service.Show(p.Context, id)
 					},
 				},
 				"users": &graphql.Field{
 					Type:        graphql.NewList(userType),
 					Description: "Get user list",
 					Resolve: func(params graphql.ResolveParams) (interface{}, error) {
-						return service.Index()
+						return service.Index(params.Context)
 					},
 				},
 			},
@@ -63,7 +65,11 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					},
 				},
 				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
-					return service.Create(params.Args["name"].(string))
+					name, ok := params.Args["name"].(string)
+					if !ok {
+						return nil, errors.New("name argument is required and must be a string")
+					}
+					return service.Create(params.Context, name)
 				},
 			},
 			"update": &graphql.Field{
@@ -78,10 +84,12 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					},
 				},
 				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
-					id, _ := params.Args["id"].(string)
+					id, ok := params.Args["id"].(string)
+					if !ok {
+						return nil, errors.New("id argument is required and must be a string")
+					}
 					name, _ := params.Args["name"].(string)
-					return service.Update(id, name)
-
+					return service.Update(params.Context, id, name)
 				},
 			},
 			"delete": &graphql.Field{
@@ -93,8 +101,11 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					},
 				},
 				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
-					id, _ := params.Args["id"].(string)
-					return service.Delete(id)
+					id, ok := params.Args["id"].(string)
+					if !ok {
+						return nil, errors.New("id argument is required and must be a string")
+					}
+					return service.Delete(params.Context, id)
 				},
 			},
 		},

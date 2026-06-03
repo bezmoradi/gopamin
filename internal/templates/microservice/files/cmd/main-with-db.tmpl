@@ -8,7 +8,9 @@ import (
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
+	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
 	"{{.Name}}/internal/core/domain"
+	"{{.Name}}/internal/core/services"
 )
 
 func init() {
@@ -17,6 +19,12 @@ func init() {
 
 func main() {
 	logger := {{.Logger}}.New()
+
+	repo, err := {{.Database}}.New(logger)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	userService := services.NewUserService(repo)
 
 	broker, err := {{.Broker}}.New("testing", logger)
 	if err != nil {
@@ -36,10 +44,12 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	// Consumer side: log every message received off the broker.
+	// Consumer side: persist every received message via the user service.
 	go func() {
 		consumeErr := broker.Consume(ctx, func(value []byte) {
-			logger.Info("message received", "payload", string(value))
+			if _, err := userService.Create(ctx, string(value)); err != nil {
+				logger.Error(err.Error())
+			}
 		})
 		if consumeErr != nil && ctx.Err() == nil {
 			logger.Fatal(consumeErr)

@@ -1,9 +1,11 @@
 package gorilla
 
 import (
+	"html/template"
+	"io/fs"
 	"net/http"
-	"path/filepath"
-	"text/template"
+
+	"{{.Name}}/internal/web"
 
 	"github.com/gorilla/mux"
 )
@@ -23,19 +25,18 @@ func (router router) registerUserRoutes() {
 }
 
 func (router router) serveStaticFiles() http.Handler {
-	assetsDir := filepath.Join(router.rootDir, "assets")
-	return http.FileServer(http.Dir(assetsDir))
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	return http.FileServer(http.FS(assetsFS))
 }
 
 func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Index()
+	result, err := router.service.Index(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
-	tmpl, err := template.ParseFiles(usersHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -49,14 +50,13 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Show(mux.Vars(r)["id"])
+	result, err := router.service.Show(r.Context(), mux.Vars(r)["id"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
-	tmpl, err := template.ParseFiles(userHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -78,7 +78,7 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	_, err = router.service.Create(name)
+	_, err = router.service.Create(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -95,7 +95,7 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	_, err = router.service.Update(mux.Vars(r)["id"], name)
+	_, err = router.service.Update(r.Context(), mux.Vars(r)["id"], name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -104,7 +104,7 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	_, err := router.service.Delete(mux.Vars(r)["id"])
+	_, err := router.service.Delete(r.Context(), mux.Vars(r)["id"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

@@ -4,6 +4,7 @@
 -   [An Intro to The Clean Architecture](#an-intro-to-the-clean-architecture)
 -   [Prerequisites](#prerequisites)
 -   [Supported Application Types](#supported-application-types)
+-   [Supported Message Brokers](#supported-message-brokers)
 -   [Supported Databases](#supported-databases)
 -   [Supported Logging Libraries](#supported-logging-libraries)
 -   [Installation](#installation)
@@ -23,7 +24,7 @@ All boilerplates created by Gopamin are based on [The Clean Architecture](https:
 
 ## Prerequisites
 
-The minimum required tools for using the Gopamin CLI tool is Golang v1.22.0 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
+The minimum required tools for using the Gopamin CLI tool is Golang v1.26.0 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
 
 -   **[Git](https://git-scm.com/)**: By default each new project created by this tool initializes a Git repo; that's why you need to make sure Git is installed on your machine.
 -   **[Docker](https://www.docker.com)**: If you choose to create a new project with database integration, a `docker-compose.yml` will be included in the root of the project for running the database of your choice.
@@ -31,26 +32,33 @@ The minimum required tools for using the Gopamin CLI tool is Golang v1.22.0 or h
 
 ## Supported Application Types
 
-You can create a range of different Golang applications using the Gopamin tool; from simple Hello World apps to Microservices. Supported applications types are as follows:
+You can create a range of different Golang applications using the Gopamin tool, from a simple Hello World app to an event-driven worker. A project is defined by orthogonal capabilities: its **type** (`-t`), an optional HTTP **framework** (`-f`), an optional message **broker** (`-b`), and an optional **database** (`-d`). Supported application types are as follows:
 
 -   Hello World
--   Web Application
--   RESTful API
+-   Web Application (requires an HTTP framework via `-f`)
+-   RESTful API (requires an HTTP framework via `-f`)
     -   Echo
     -   Chi
     -   Gin
     -   Httprouter
     -   Gorilla
-    -   HTTP (The build-in HTTP package will be used)
--   GraphQL API
--   Microservices
-    -   Redis
-    -   Kafka
-    -   RabbitMQ
+    -   HTTP (the built-in `net/http` package will be used)
+-   GraphQL API (an `api` project created with `-f graphql`)
+-   Worker (a broker-driven service with no HTTP server; requires a broker via `-b`)
+
+> A "microservice" is not a separate type — it's a deployment style. Any of the above (a REST API, a GraphQL API, or a worker) can be a microservice, and any of them can carry a database. An `api`/`web-app` given a `-b` broker emits an event on every write **and** runs a consumer loop alongside its HTTP server.
+
+## Supported Message Brokers
+
+By passing the `-b` flag you add messaging. It is **required** for the `worker` type and **optional** for `api` and `web-app` projects. Supported brokers are as follows:
+
+-   Kafka
+-   RabbitMQ
+-   Redis
 
 ## Supported Databases
 
-Based on the type of the project you want to scaffold, by passing the `-d` flag, you can also add database integration. Supported databases are as follows:
+By passing the `-d` flag you can add a database to any project type — it is always optional. Supported databases are as follows:
 
 -   MySQL
 -   MariaDB
@@ -59,10 +67,9 @@ Based on the type of the project you want to scaffold, by passing the `-d` flag,
 -   MongoDB
 -   SQLite
 -   DynamoDB
--   Redis
 -   BadgerDB
 
-Based on the database type you choose, a `docker-compose.yml` file will be added (if need be) as well to make running the database instance easier for development purposes.
+When a containerized database and/or a broker is selected, a single merged `docker-compose.yml` (plus generic `docker-up` / `docker-down` make targets) is generated so you can run every backend together for local development. (Redis is intentionally **not** a database option — it is a cache/broker, offered only via `-b`.)
 
 ## Supported Logging Libraries
 
@@ -85,6 +92,31 @@ To make sure it's installed correctly in your `$GOPATH`, run the following comma
 
 ```text
 $ gopamin version
+```
+
+If this prints a version number, you're all set. If you instead see `gopamin: command not found`, Go installed the binary into its bin directory (`$(go env GOPATH)/bin`), which isn't on your `PATH` yet. Add it as shown below, then re-run `gopamin version`.
+
+### For Bash
+
+Add this line to `~/.bashrc`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Then reload:
+
+```bash
+source ~/.bashrc
+```
+
+### For Zsh
+
+Add it to `~/.zshrc`:
+
+```bash
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 If the installation process goes well, from now on you can run the `gopamin` command from anywhere on your file system.
@@ -131,53 +163,61 @@ In this case, the project folder will be named `github.com-user-name-repo_name` 
 ```text
 module github.com/user-name/repo_name
 
-go 1.22.0
+go 1.26.0
 ```
 
 ### The `-t` Flag
 
-The `-t` flag which is short for `--type` should be used for choosing the project type you want to scaffold. For example, to create a simple Hello World app we have:
+The `-t` flag, short for `--type`, chooses the project type to scaffold. For example, to create a simple Hello World app we have:
 
 ```text
-$ gopamin -n my-hello-world-app -t hello-world -l log
+$ gopamin new -n my-hello-world-app -t hello-world -l log
 ```
 
-The supported values for the `-t` flag are `hello-world`, `web-app`, `api`, and `microservice`.
+The supported values for the `-t` flag are `hello-world`, `web-app`, `api`, and `worker`.
 
-### The `-p` Flag
+### The `-f` Flag
 
-The `-p` flag which is short for `--platform` must be used for the projects of type `web-app`, `api`, and `microservice`. Supported values for projects of the `web-app` type are `echo`, `chi`, `gin`, `httprouter`, `gorilla`, and `http`. Also supported values for the `-p` flag for the projects of type `api` are `echo`, `chi`, `gin`, `httprouter`, `gorilla`, `http`, and `graphql`. For example, to create an API which uses the Echo framework under the hood we have:
+The `-f` flag, short for `--framework`, selects the HTTP framework and is **required** for the `web-app` and `api` types. Supported values for `web-app` are `echo`, `chi`, `gin`, `httprouter`, `gorilla`, and `http`. For `api`, the same values plus `graphql` are supported. For example, to create an API that uses the Echo framework under the hood we have:
 
 ```text
-$ gopamin new -n my-rest-api -t api -p echo -l log
+$ gopamin new -n my-rest-api -t api -f echo -l log
 ```
 
 Or in order to create a GraphQL API with MySQL integration we have:
 
 ```text
-$ gopamin new -n my-graphql-api -t api -p graphql -d mysql -l log
+$ gopamin new -n my-graphql-api -t api -f graphql -d mysql -l log
 ```
 
-Supported values for the `-p` flag for the projects of type `microservice` are `redis`, `kafka`, and `rabbitmq`. For example, to create a microservice with Kafka integration we have:
+### The `-b` Flag
+
+The `-b` flag, short for `--broker`, selects a message broker. It is **required** for the `worker` type and **optional** for `api` and `web-app`. Supported values are `kafka`, `rabbitmq`, and `redis`. For example, to create a broker-driven worker with Kafka we have:
 
 ```text
-$ gopamin new -n my-kafka-microservice -t microservice -p kafka -l log
+$ gopamin new -n my-worker -t worker -b kafka -l log
+```
+
+When you add a broker to an `api` or `web-app`, the generated service produces an event on every write and runs a consumer loop alongside the HTTP server — and it can still own a database:
+
+```text
+$ gopamin new -n my-service -t api -f echo -b kafka -d postgres -l slog
 ```
 
 ### The `-d` Flag
 
-The `-d` flag which is short for `--database` should be used to add database integration. Available values for this flag are `mysql`, `cassandra`, `mariadb`, `postgres`, `mongodb`, `sqlite`, `dynamodb`, and `redis`. For example, to create a web application with MySQL integration we have:
+The `-d` flag, short for `--database`, adds a database and is optional for every type. Available values are `mysql`, `cassandra`, `mariadb`, `postgres`, `mongodb`, `sqlite`, `dynamodb`, and `badgerdb`. For example, to create a web application with MySQL integration we have:
 
 ```text
-$ gopamin new -n my-web-app -t web-app -p http -d mysql -l log
+$ gopamin new -n my-web-app -t web-app -f http -d mysql -l log
 ```
 
 ### The `-l` Flag
 
-The `-l` flag which is short for `--logger` should be used to add logger type. Available values for this flag are `log`, `slog`, `logrus`, and `zap`. For example, to create a microservice with Logrus support we have:
+The `-l` flag, short for `--logger`, sets the logger and is required for every type. Available values are `log`, `slog`, `logrus`, and `zap`. For example, to create a worker with Logrus support we have:
 
 ```text
-$ gopamin new -n my-microservice -t microservice -p rabbitmq -l logrus
+$ gopamin new -n my-worker -t worker -b rabbitmq -l logrus
 ```
 
 ## Guides

@@ -2,8 +2,10 @@ package gin
 
 import (
 	"html/template"
+	"io/fs"
 	"net/http"
-	"path/filepath"
+
+	"{{.Name}}/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,47 +19,45 @@ func (router *router) registerUserRoutes() {
 	r.PUT("/:id", router.UpdateUserHandler)
 	r.DELETE("/:id", router.DeleteUserHandler)
 
-	router.engine.GET("/assets/*filepath", router.serveStaticFilesHandler)
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	router.engine.StaticFS("/assets", http.FS(assetsFS))
 
-}
-
-func (router router) serveStaticFilesHandler(c *gin.Context) {
-	assetsDir := filepath.Join(router.rootDir, "assets")
-	c.File(filepath.Join(assetsDir, c.Param("filepath")))
 }
 
 func (router router) IndexHandler(c *gin.Context) {
-	result, err := router.service.Index()
+	result, err := router.service.Index(c.Request.Context())
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	usersHtmlFile := filepath.Join(router.rootDir, "assets/users.html")
-	tmpl, err := template.ParseFiles(usersHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	tmpl.Execute(c.Writer, result)
+	if err := tmpl.Execute(c.Writer, result); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+	}
 }
 
 func (router router) ShowUserHandler(c *gin.Context) {
-	result, err := router.service.Show(c.Param("id"))
+	result, err := router.service.Show(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		c.String(http.StatusNotFound, err.Error())
 		return
 	}
 
-	userHtmlFile := filepath.Join(router.rootDir, "assets/user.html")
-	tmpl, err := template.ParseFiles(userHtmlFile)
+	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	tmpl.Execute(c.Writer, result)
+	if err := tmpl.Execute(c.Writer, result); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+	}
 }
 
 func (router router) CreateUserHandler(c *gin.Context) {
@@ -66,11 +66,11 @@ func (router router) CreateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
 
-	_, err := router.service.Create(form.Name)
+	_, err := router.service.Create(c.Request.Context(), form.Name)
 	if err != nil {
 		c.String(http.StatusUnprocessableEntity, err.Error())
 		return
@@ -85,11 +85,11 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
 
-	_, err := router.service.Update(c.Param("id"), form.Name)
+	_, err := router.service.Update(c.Request.Context(), c.Param("id"), form.Name)
 	if err != nil {
 		c.String(http.StatusNotFound, err.Error())
 		return
@@ -99,7 +99,7 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 }
 
 func (router router) DeleteUserHandler(c *gin.Context) {
-	_, err := router.service.Delete(c.Param("id"))
+	_, err := router.service.Delete(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		c.String(http.StatusNotFound, err.Error())
 		return

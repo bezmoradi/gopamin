@@ -14,21 +14,23 @@ type redisBroker struct {
 	channel string
 }
 
-func New(channel string, logger ports.Logger) ports.MessageBrokerInterface {
+func New(channel string, logger ports.Logger) (*redisBroker, error) {
 	host := os.Getenv("REDIS_HOST")
 	port := os.Getenv("REDIS_PORT")
 
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%v:%v", host, port),
-		Password: "",
+		Password: os.Getenv("REDIS_PASSWORD"),
 		DB:       0,
 	})
 
-	logger.Info("Successfully connected to Redis")
-
 	c := &redisBroker{client: client, channel: channel}
 
-	return c
+	return c, nil
+}
+
+func (r redisBroker) Close() error {
+	return r.client.Close()
 }
 
 func (r redisBroker) Produce(ctx context.Context, value []byte) error {
@@ -37,7 +39,7 @@ func (r redisBroker) Produce(ctx context.Context, value []byte) error {
 
 func (r redisBroker) Consume(ctx context.Context, handler func(value []byte)) error {
 	sub := r.client.Subscribe(ctx, r.channel)
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 
 	ch := sub.Channel()
 	for msg := range ch {

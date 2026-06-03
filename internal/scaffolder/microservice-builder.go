@@ -2,94 +2,45 @@ package scaffolder
 
 import "fmt"
 
-type kafkaMicroserviceBuilder struct {
-	project *Project
+// workerRecipes maps a broker to the modules its adapter needs. The file keys are
+// derived uniformly from the broker name (<broker>-microservice-*).
+var workerRecipes = map[string][]string{
+	"kafka":    {"github.com/segmentio/kafka-go"},
+	"rabbitmq": {"github.com/rabbitmq/amqp091-go"},
+	"redis":    {"github.com/redis/go-redis/v9"},
 }
 
-func (b *kafkaMicroserviceBuilder) build() {
-	loggerSelector(b.project)
-	fileGenerator([]string{"readme", b.project.Logger + "-readme", "kafka-microservice-readme"}, b.project)
-	fileGenerator([]string{"env", "kafka-microservice-env"}, b.project)
-	fileGenerator([]string{"makefile", "kafka-microservice-makefile"}, b.project)
-	fileGenerator([]string{"kafka-microservice-docker-compose"}, b.project)
-	fileGenerator([]string{"kafka-microservice-broker"}, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"message"}, b.project)
-	fileGenerator([]string{"broker-service-interface"}, b.project)
-	fileGenerator([]string{"broker-service"}, b.project)
-	fileGenerator([]string{"message-broker-interface"}, b.project)
-	fileGenerator([]string{"microservice-main"}, b.project)
+func buildWorker(p *Project) {
+	broker := p.Broker
+	packages := workerRecipes[broker]
 
-	goGetPackages(b.project.Path, []string{"github.com/segmentio/kafka-go"})
+	buildLogger(p)
+	readme := []string{"readme", p.Logger + "-readme", broker + "-microservice-readme"}
+	env := []string{"env", broker + "-microservice-env"}
+	if p.Database != "" {
+		buildDatabase(p, p.Database)
+		readme = append(readme, p.Database+"-readme")
+		env = append(env, p.Database+"-env")
+	}
 
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
+	fileGenerator(readme, p)
+	fileGenerator(env, p)
+	fileGenerator([]string{"makefile", "docker-makefile"}, p)
+	fileGenerator([]string{"docker-compose"}, p)
+	fileGenerator([]string{broker + "-microservice-broker"}, p)
+	fileGenerator([]string{"configs"}, p)
+	fileGenerator([]string{"configs-test"}, p)
+	fileGenerator([]string{"tools"}, p)
+	fileGenerator([]string{"tools-test"}, p)
+	fileGenerator([]string{"message"}, p)
 
-type rabbitmqMicroserviceBuilder struct {
-	project *Project
-}
+	if p.Database == "" {
+		fileGenerator([]string{"microservice-main"}, p)
+	} else {
+		fileGenerator([]string{"worker-main-with-db"}, p)
+	}
 
-func (b *rabbitmqMicroserviceBuilder) build() {
-	loggerSelector(b.project)
-	fileGenerator([]string{"readme", b.project.Logger + "-readme", "rabbitmq-microservice-readme"}, b.project)
-	fileGenerator([]string{"env", "rabbitmq-microservice-env"}, b.project)
-	fileGenerator([]string{"makefile", "rabbitmq-microservice-makefile"}, b.project)
-	fileGenerator([]string{"rabbitmq-microservice-docker-compose"}, b.project)
-	fileGenerator([]string{"rabbitmq-microservice-broker"}, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"message"}, b.project)
-	fileGenerator([]string{"broker-service-interface"}, b.project)
-	fileGenerator([]string{"broker-service"}, b.project)
-	fileGenerator([]string{"message-broker-interface"}, b.project)
-	fileGenerator([]string{"microservice-main"}, b.project)
+	goGetPackages(p.Path, packages)
 
-	goGetPackages(b.project.Path, []string{"github.com/streadway/amqp"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type redisMicroserviceBuilder struct {
-	project *Project
-}
-
-func (b *redisMicroserviceBuilder) build() {
-	loggerSelector(b.project)
-	fileGenerator([]string{"readme", b.project.Logger + "-readme", "redis-microservice-readme"}, b.project)
-	fileGenerator([]string{"env", "redis-microservice-env"}, b.project)
-	fileGenerator([]string{"makefile", "redis-microservice-makefile"}, b.project)
-	fileGenerator([]string{"redis-microservice-docker-compose"}, b.project)
-	fileGenerator([]string{"redis-microservice-broker"}, b.project)
-	fileGenerator([]string{"configs"}, b.project)
-	fileGenerator([]string{"configs-test"}, b.project)
-	fileGenerator([]string{"tools"}, b.project)
-	fileGenerator([]string{"tools-test"}, b.project)
-	fileGenerator([]string{"message"}, b.project)
-	fileGenerator([]string{"broker-service-interface"}, b.project)
-	fileGenerator([]string{"broker-service"}, b.project)
-	fileGenerator([]string{"message-broker-interface"}, b.project)
-	fileGenerator([]string{"microservice-main"}, b.project)
-
-	goGetPackages(b.project.Path, []string{"github.com/redis/go-redis/v9"})
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", b.project.Name)
-}
-
-type microserviceBuilderFactory func(p *Project) boilerplateBuilder
-
-var microserviceBuilderMap = map[string]microserviceBuilderFactory{
-	"kafka": func(p *Project) boilerplateBuilder {
-		return &kafkaMicroserviceBuilder{p}
-	},
-	"rabbitmq": func(p *Project) boilerplateBuilder {
-		return &rabbitmqMicroserviceBuilder{p}
-	},
-	"redis": func(p *Project) boilerplateBuilder {
-		return &redisMicroserviceBuilder{p}
-	},
+	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
 }

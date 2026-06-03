@@ -1,25 +1,31 @@
 package mock
 
 import (
+	"context"
+	"sync"
+
 	"{{.Name}}/internal/core/domain"
-	"errors"
 
 	"github.com/google/uuid"
 )
 
 type MockRepository struct {
+	mu            sync.RWMutex
 	Users         []domain.User
-	SpyOnInsert   func(name string) (string, error)
-	SpyOnUpdate   func(id string, name string) (string, error)
-	SpyOnDelete   func(id string) (string, error)
-	SpyOnFetch    func(id string) (domain.User, error)
-	SpyOnFetchAll func() ([]domain.User, error)
+	SpyOnInsert   func(ctx context.Context, name string) (string, error)
+	SpyOnUpdate   func(ctx context.Context, id string, name string) (int64, error)
+	SpyOnDelete   func(ctx context.Context, id string) (int64, error)
+	SpyOnFetch    func(ctx context.Context, id string) (domain.User, error)
+	SpyOnFetchAll func(ctx context.Context) ([]domain.User, error)
 }
 
-func (m *MockRepository) Insert(name string) (string, error) {
+func (m *MockRepository) Insert(ctx context.Context, name string) (string, error) {
 	if m.SpyOnInsert != nil {
-		return m.SpyOnInsert(name)
+		return m.SpyOnInsert(ctx, name)
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	id := uuid.New()
 	m.Users = append(m.Users, domain.User{Id: id.String(), Name: name})
@@ -27,60 +33,66 @@ func (m *MockRepository) Insert(name string) (string, error) {
 	return id.String(), nil
 }
 
-func (m *MockRepository) Update(id string, name string) (string, error) {
+func (m *MockRepository) Update(ctx context.Context, id string, name string) (int64, error) {
 	if m.SpyOnUpdate != nil {
-		return m.SpyOnUpdate(id, name)
+		return m.SpyOnUpdate(ctx, id, name)
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for index, u := range m.Users {
 		if id == u.Id {
 			m.Users[index].Name = name
-			break
+			return 1, nil
 		}
 	}
 
-	return "1", nil
+	return 0, nil
 }
 
-func (m *MockRepository) Delete(id string) (string, error) {
+func (m *MockRepository) Delete(ctx context.Context, id string) (int64, error) {
 	if m.SpyOnDelete != nil {
-		return m.SpyOnDelete(id)
+		return m.SpyOnDelete(ctx, id)
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for index, u := range m.Users {
 		if id == u.Id {
 			m.Users = append(m.Users[:index], m.Users[index+1:]...)
-			break
+			return 1, nil
 		}
 	}
 
-	return "1", nil
+	return 0, nil
 }
 
-func (m *MockRepository) Fetch(id string) (domain.User, error) {
+func (m *MockRepository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	if m.SpyOnFetch != nil {
-		return m.SpyOnFetch(id)
+		return m.SpyOnFetch(ctx, id)
 	}
 
-	user := domain.User{}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for _, u := range m.Users {
 		if id == u.Id {
-			user = u
-			break
+			return u, nil
 		}
 	}
 
-	if user.Id == "" {
-		return domain.User{}, errors.New("user not found with ID "+id)
-	}
-
-	return user, nil
+	return domain.User{}, domain.ErrUserNotFound
 }
 
-func (m *MockRepository) FetchAll() ([]domain.User, error) {
+func (m *MockRepository) FetchAll(ctx context.Context) ([]domain.User, error) {
 	if m.SpyOnFetchAll != nil {
-		return m.SpyOnFetchAll()
+		return m.SpyOnFetchAll(ctx)
 	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	return m.Users, nil
 }

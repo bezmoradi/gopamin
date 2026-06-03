@@ -1,6 +1,8 @@
 package badgerdb
 
 import (
+	"context"
+	"errors"
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
 
@@ -13,30 +15,37 @@ type connection struct {
 	logger ports.Logger
 }
 
-func New(logger ports.Logger) ports.UserRepositoryInterface {
+func New(logger ports.Logger) (*connection, error) {
 	options := badger.DefaultOptions("./badger")
 	options.Logger = nil
 	db, err := badger.Open(options)
 	if err != nil {
-		logger.Fatal(err)
+		return nil, err
 	}
 	c := &connection{db: db, logger: logger}
 
-	return c
+	return c, nil
 }
 
-func (c *connection) Delete(id string) (string, error) {
+func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+	var affected int64
 	err := c.db.Update(func(txn *badger.Txn) error {
-		err := txn.Delete([]byte(id))
-		return err
+		if _, err := txn.Get([]byte(id)); err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				return nil
+			}
+			return err
+		}
+		affected = 1
+		return txn.Delete([]byte(id))
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
-	return "1", nil
+	return affected, nil
 }
 
-func (c *connection) Fetch(id string) (domain.User, error) {
+func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
 	var value []byte
 	err := c.db.View(func(txn *badger.Txn) error {
 		i, err := txn.Get([]byte(id))
@@ -47,13 +56,15 @@ func (c *connection) Fetch(id string) (domain.User, error) {
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return domain.User{}, domain.ErrUserNotFound
+		}
 		return domain.User{}, err
 	}
-	return domain.User{Id: id, Name: string(value)}, err
-
+	return domain.User{Id: id, Name: string(value)}, nil
 }
 
-func (c *connection) FetchAll() ([]domain.User, error) {
+func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
 	err := c.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
@@ -79,7 +90,7 @@ func (c *connection) FetchAll() ([]domain.User, error) {
 	return users, nil
 }
 
-func (c *connection) Insert(name string) (string, error) {
+func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	id := uuid.New()
 
 	err := c.db.Update(func(txn *badger.Txn) error {
@@ -92,13 +103,20 @@ func (c *connection) Insert(name string) (string, error) {
 	return id.String(), nil
 }
 
-func (c *connection) Update(id string, value string) (string, error) {
+func (c *connection) Update(ctx context.Context, id string, value string) (int64, error) {
+	var affected int64
 	err := c.db.Update(func(txn *badger.Txn) error {
-		err := txn.Set([]byte(id), []byte(value))
-		return err
+		if _, err := txn.Get([]byte(id)); err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				return nil
+			}
+			return err
+		}
+		affected = 1
+		return txn.Set([]byte(id), []byte(value))
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
-	return "1", nil
+	return affected, nil
 }

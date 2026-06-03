@@ -1,13 +1,15 @@
 package echo
 
 import (
-	"{{.Name}}/internal/core/api"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"{{.Name}}/internal/adapters/api"
+	"{{.Name}}/internal/core/domain"
+
+	"github.com/labstack/echo/v5"
 )
 
 func (router router) registerUserRoutes() {
@@ -20,107 +22,83 @@ func (router router) registerUserRoutes() {
 	group.DELETE("/:id", router.DeleteUserHandler)
 }
 
-func (router router) CreateUserHandler(c echo.Context) error {
-	var response api.Response
+func (router router) CreateUserHandler(c *echo.Context) error {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
+	}
 
-	body, err := io.ReadAll(c.Request().Body)
+	result, err := router.service.Create(c.Request().Context(), body.Name)
+	if errors.Is(err, domain.ErrNameRequired) {
+		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+	}
 	if err != nil {
-		response := api.Response{Error: api.FailedToReadRequestBody}
-		return c.JSON(http.StatusInternalServerError, response)
+		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
 	}
 
-	var requestBody map[string]interface{}
-	if err := json.Unmarshal(body, &requestBody); err != nil {
-		response := api.Response{Error: api.FailedToEncodeBodyPayload}
-		return c.JSON(http.StatusInternalServerError, response)
-	}
-
-	name, _ := requestBody["name"].(string)
-	result, err := router.service.Create(name)
-	if err != nil {
-		response := api.Response{Message: err.Error(), Error: api.RequiredField}
-		return c.JSON(http.StatusUnprocessableEntity, response)
-	}
-
-	response = api.Response{Message: "Created user successfully", Data: result}
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusCreated, api.Response{Message: "Created user successfully", Data: result})
 }
 
-func (router *router) DeleteUserHandler(c echo.Context) error {
-	var response api.Response
+func (router *router) DeleteUserHandler(c *echo.Context) error {
+	id := c.Param("id")
 
-	rowsEffected, err := router.service.Delete(c.Param("id"))
+	rowsAffected, err := router.service.Delete(c.Request().Context(), id)
 	if err != nil {
-		response = api.Response{Message: err.Error(), Error: api.DatabaseOperationFailure}
-		return c.JSON(http.StatusInternalServerError, response)
+		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
 	}
 
-	if rowsEffected > "0" {
-		response = api.Response{
-			Message: fmt.Sprintf("deleted user with ID of %v successfully", c.Param("id")),
-		}
-	} else {
-		response = api.Response{
-			Message: fmt.Sprintf("no user found with ID of %v", c.Param("id")),
-		}
+	if rowsAffected == 0 {
+		return c.JSON(http.StatusNotFound, api.Response{
+			Message: fmt.Sprintf("no user found with ID of %v", id),
+		})
 	}
 
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, api.Response{
+		Message: fmt.Sprintf("deleted user with ID of %v successfully", id),
+	})
 }
 
-func (router *router) IndexHandler(c echo.Context) error {
-	var response api.Response
-
-	result, err := router.service.Index()
+func (router *router) IndexHandler(c *echo.Context) error {
+	result, err := router.service.Index(c.Request().Context())
 	if err != nil {
-		response = api.Response{Message: err.Error(), Error: api.DatabaseOperationFailure}
-		return c.JSON(http.StatusInternalServerError, response)
+		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
 	}
 
-	response = api.Response{
-		Message: "Fetched users successfully",
-		Data:    result,
-	}
-
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, api.Response{Message: "Fetched users successfully", Data: result})
 }
 
-func (router *router) ShowUserHandler(c echo.Context) error {
-	var response api.Response
-
-	result, err := router.service.Show(c.Param("id"))
+func (router *router) ShowUserHandler(c *echo.Context) error {
+	result, err := router.service.Show(c.Request().Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
+	}
 	if err != nil {
-		response = api.Response{Message: err.Error(), Error: api.NotFoundError}
-	} else {
-		response = api.Response{Message: "Fetched user successfully", Data: result}
+		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
 	}
 
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, api.Response{Message: "Fetched user successfully", Data: result})
 }
 
-func (router *router) UpdateUserHandler(c echo.Context) error {
-	var response api.Response
-
-	body, err := io.ReadAll(c.Request().Body)
-	if err != nil {
-		response := api.Response{Error: api.FailedToReadRequestBody}
-		return c.JSON(http.StatusInternalServerError, response)
+func (router *router) UpdateUserHandler(c *echo.Context) error {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
 	}
 
-	var requestBody map[string]interface{}
-	err = json.Unmarshal(body, &requestBody)
+	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)
+	if errors.Is(err, domain.ErrNameRequired) {
+		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+	}
 	if err != nil {
-		response := api.Response{Error: api.FailedToEncodeBodyPayload}
-		return c.JSON(http.StatusInternalServerError, response)
+		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+	}
+	if rowsAffected == 0 {
+		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 	}
 
-	name, _ := requestBody["name"].(string)
-	result, err := router.service.Update(c.Param("id"), name)
-	if err != nil {
-		response := api.Response{Message: err.Error(), Error: api.RequiredField}
-		return c.JSON(http.StatusUnprocessableEntity, response)
-	}
-
-	response = api.Response{Message: "User updated successfully", Data: result}
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, api.Response{Message: "User updated successfully", Data: rowsAffected})
 }

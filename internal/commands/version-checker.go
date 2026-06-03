@@ -4,16 +4,18 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"time"
 )
 
 const ENV_URL = "https://raw.githubusercontent.com/bezmoradi/gopamin/main/internal/commands/constants.go"
 
 func versionChecker() (bool, string) {
-	res, err := http.Get(ENV_URL)
+	client := http.Client{Timeout: 3 * time.Second}
+	res, err := client.Get(ENV_URL)
 	if err != nil {
 		return true, ""
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return true, ""
 	}
@@ -23,6 +25,9 @@ func versionChecker() (bool, string) {
 	}
 
 	newVersion := extractVersion(string(bytes))
+	if newVersion == "" {
+		return true, ""
+	}
 	if VERSION != newVersion {
 		return false, newVersion
 	}
@@ -33,5 +38,8 @@ func versionChecker() (bool, string) {
 func extractVersion(input string) string {
 	re := regexp.MustCompile(`VERSION\s*=\s*"v(\d+\.\d+\.\d+)"`)
 	matches := re.FindStringSubmatch(input)
+	if len(matches) < 2 {
+		return ""
+	}
 	return "v" + matches[1]
 }

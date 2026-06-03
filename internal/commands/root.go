@@ -36,14 +36,14 @@ func completionCommand() *cobra.Command {
 }
 
 func Execute() {
-	isValid, newVersion := versionChecker()
-	if !isValid {
-		fmt.Printf(`The newest version of the Gopamin CLI is %v but the installed version on your system is %v. 
+	// The update check is advisory only: it never blocks a command, and a slow
+	// or unreachable network simply skips it (see versionChecker).
+	if isValid, newVersion := versionChecker(); !isValid {
+		fmt.Printf(`A newer version of the Gopamin CLI is available (%v); you have %v.
 
 %v
 
-To get the latest features and likely bugfixes, please install the latest version by running 'go install github.com/bezmoradi/gopamin@%v'.`+"\n", newVersion, VERSION, UPDATE_MESSAGE, newVersion)
-		return
+To update, run 'go install github.com/bezmoradi/gopamin@%v'.`+"\n\n", newVersion, VERSION, UPDATE_MESSAGE, newVersion)
 	}
 
 	if err := rootCmd.Execute(); err != nil {

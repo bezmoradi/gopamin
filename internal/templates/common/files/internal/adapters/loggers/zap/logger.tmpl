@@ -31,8 +31,7 @@ func New(fileName ...string) ports.Logger {
 			logger: l.Sugar(),
 		}
 	}
-	l := zap.NewExample()
-	defer l.Sync()
+	l, _ := zap.NewProduction()
 
 	return logger{
 		logger: l.Sugar(),
@@ -52,8 +51,7 @@ func (l logger) Error(message string, args ...any) {
 }
 
 func (l logger) Fatal(err error) {
-	l.logger.Info(err.Error())
-	os.Exit(1)
+	l.logger.Fatal(err.Error())
 }
 
 func (l logger) Panic(err error) {

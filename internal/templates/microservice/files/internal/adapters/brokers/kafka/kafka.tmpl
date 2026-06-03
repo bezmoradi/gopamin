@@ -2,8 +2,12 @@ package kafka
 
 import (
 	"context"
-	"{{.Name}}/internal/core/ports"
+	"errors"
+	"net"
 	"os"
+	"strconv"
+
+	"{{.Name}}/internal/core/ports"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -13,14 +17,21 @@ type kafkaBroker struct {
 	reader *kafka.Reader
 }
 
-func New(topic string, logger ports.Logger) ports.MessageBrokerInterface {
+func New(topic string, logger ports.Logger) (*kafkaBroker, error) {
 	broker := os.Getenv("KAFKA_BROKER")
 
-	writer := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  []string{broker},
-		Topic:    topic,
-		Balancer: &kafka.Hash{},
-	})
+	// Ensure the topic exists up front so a freshly-provisioned broker does not
+	// return "Unknown Topic Or Partition" on the first produce/consume.
+	if err := ensureTopic(broker, topic); err != nil {
+		return nil, err
+	}
+
+	writer := &kafka.Writer{
+		Addr:                   kafka.TCP(broker),
+		Topic:                  topic,
+		Balancer:               &kafka.Hash{},
+		AllowAutoTopicCreation: true,
+	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{broker},
@@ -30,25 +41,54 @@ func New(topic string, logger ports.Logger) ports.MessageBrokerInterface {
 		MaxBytes:  10e6,
 	})
 
-	logger.Info("Successfully connected to Kafka")
-
 	return &kafkaBroker{
 		writer: writer,
 		reader: reader,
+	}, nil
+}
+
+func ensureTopic(broker string, topic string) error {
+	conn, err := kafka.Dial("tcp", broker)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = conn.Close() }()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		return err
+	}
+
+	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = controllerConn.Close() }()
+
+	err = controllerConn.CreateTopics(kafka.TopicConfig{
+		Topic:             topic,
+		NumPartitions:     1,
+		ReplicationFactor: 1,
+	})
+	if err != nil && !errors.Is(err, kafka.TopicAlreadyExists) {
+		return err
+	}
+
+	return nil
 }
 
 func (k *kafkaBroker) Produce(ctx context.Context, value []byte) error {
-	defer k.writer.Close()
-
 	return k.writer.WriteMessages(ctx, kafka.Message{
 		Value: value,
 	})
 }
 
-func (k *kafkaBroker) Consume(ctx context.Context, handler func(value []byte)) error {
-	defer k.reader.Close()
+func (k *kafkaBroker) Close() error {
+	_ = k.reader.Close()
+	return k.writer.Close()
+}
 
+func (k *kafkaBroker) Consume(ctx context.Context, handler func(value []byte)) error {
 	for {
 		m, err := k.reader.ReadMessage(ctx)
 		if err != nil {

@@ -2,22 +2,21 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
 	"os"
-	"strconv"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const collectionName = "users"
 
 type mongodbUser struct {
-	Id   primitive.ObjectID `json:"id" bson:"_id"`
+	Id   bson.ObjectID `json:"id" bson:"_id"`
 	Name string             `json:"name" bson:"name"`
 }
 
@@ -33,21 +32,24 @@ func mapMongodbToUser(m mongodbUser) domain.User {
 	}
 }
 
-func New(logger ports.Logger) ports.UserRepositoryInterface {
+func New(logger ports.Logger) (*connection, error) {
 	host := os.Getenv("MONGODB_HOST")
 	port := os.Getenv("MONGODB_PORT")
 	username := os.Getenv("MONGODB_USERNAME")
 	password := os.Getenv("MONGODB_PASSWORD")
 
-	mongoClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(fmt.Sprintf("mongodb://%s:%s@%s:%s", username, password, host, port)))
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(fmt.Sprintf("mongodb://%s:%s@%s:%s", username, password, host, port)))
 	if err != nil {
-		logger.Error("cannot connect to MongoDB")
-		os.Exit(1)
+		return nil, fmt.Errorf("cannot connect to MongoDB: %w", err)
+	}
+
+	if err := mongoClient.Ping(context.Background(), nil); err != nil {
+		return nil, fmt.Errorf("cannot reach MongoDB: %w", err)
 	}
 
 	c := &connection{db: mongoClient, logger: logger}
 
-	return c
+	return c, nil
 }
 
 func (c *connection) GetCollection() *mongo.Collection {
@@ -56,9 +58,9 @@ func (c *connection) GetCollection() *mongo.Collection {
 	return c.db.Database(database).Collection(collectionName)
 }
 
-func (c *connection) Insert(name string) (string, error) {
+func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	result, err := c.GetCollection().InsertOne(
-		context.Background(),
+		ctx,
 		bson.M{
 			"name": name,
 		},
@@ -67,7 +69,7 @@ func (c *connection) Insert(name string) (string, error) {
 		return "", err
 	}
 
-	insertedId, ok := result.InsertedID.(primitive.ObjectID)
+	insertedId, ok := result.InsertedID.(bson.ObjectID)
 	if !ok {
 		return "", fmt.Errorf("unexpected type for InsertedID")
 	}
@@ -75,14 +77,15 @@ func (c *connection) Insert(name string) (string, error) {
 	return insertedId.Hex(), nil
 }
 
-func (c *connection) Update(id string, name string) (string, error) {
-	objectID, err := primitive.ObjectIDFromHex(id)
+func (c *connection) Update(ctx context.Context, id string, name string) (int64, error) {
+	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
-		return "", err
+		// A malformed id can never match a document.
+		return 0, nil
 	}
 
 	result, err := c.GetCollection().UpdateOne(
-		context.TODO(),
+		ctx,
 		bson.D{
 			{Key: "_id", Value: objectID},
 		}, bson.D{
@@ -95,32 +98,34 @@ func (c *connection) Update(id string, name string) (string, error) {
 		},
 	)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	return strconv.FormatInt(result.ModifiedCount, 10), nil
+	return result.ModifiedCount, nil
 }
 
-func (c *connection) Delete(id string) (string, error) {
-	objectID, err := primitive.ObjectIDFromHex(id)
+func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
-		return "", err
+		// A malformed id can never match a document.
+		return 0, nil
 	}
 
-	result, err := c.GetCollection().DeleteOne(context.TODO(), bson.D{
+	result, err := c.GetCollection().DeleteOne(ctx, bson.D{
 		{Key: "_id", Value: objectID},
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	return strconv.FormatInt(result.DeletedCount, 10), nil
+	return result.DeletedCount, nil
 }
 
-func (c *connection) Fetch(id string) (domain.User, error) {
-	objectID, err := primitive.ObjectIDFromHex(id)
+func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
-		return domain.User{}, err
+		// A malformed id can never match a document.
+		return domain.User{}, domain.ErrUserNotFound
 	}
 
 	var user mongodbUser
@@ -128,10 +133,10 @@ func (c *connection) Fetch(id string) (domain.User, error) {
 		{Key: "_id", Value: objectID},
 	}
 
-	err = c.GetCollection().FindOne(context.TODO(), filter).Decode(&user)
+	err = c.GetCollection().FindOne(ctx, filter).Decode(&user)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return domain.User{}, fmt.Errorf("user not found with ID %s", id)
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return domain.User{}, domain.ErrUserNotFound
 		}
 		return domain.User{}, err
 	}
@@ -139,15 +144,15 @@ func (c *connection) Fetch(id string) (domain.User, error) {
 	return mapMongodbToUser(user), nil
 }
 
-func (c *connection) FetchAll() ([]domain.User, error) {
+func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
-	cursor, err := c.GetCollection().Find(context.TODO(), bson.D{})
+	cursor, err := c.GetCollection().Find(ctx, bson.D{})
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(context.TODO())
+	defer func() { _ = cursor.Close(ctx) }()
 
-	for cursor.Next(context.TODO()) {
+	for cursor.Next(ctx) {
 		var user mongodbUser
 		if err := cursor.Decode(&user); err != nil {
 			return nil, err
