@@ -7,7 +7,6 @@
 - [Recipes](#recipes)
 - [Installation](#installation)
 - [Update](#update)
-- [Usage](#usage)
 - [Guides](#guides)
 - [Author](#author)
 - [License](#license)
@@ -112,42 +111,6 @@ Since this tool is still in development, bugs are being identified and addressed
 ```text
 The newest version of the Gopamin CLI is 1.0.13 but the installed version on your system is v1.0.10.
 To get the latest features and likely bugfixes, please install the latest version by running 'go install github.com/bezmoradi/gopamin@1.0.13'
-```
-
-## Usage
-
-If you got the current version correctly in the previous step, now you can use this tool to scaffold new Golang projects. Every flag is summarized in [Supported Flags](#supported-flags), and [Recipes](#recipes) shows ready-to-run combinations. The two flags below have a little extra behavior worth calling out.
-
-### The `-h` Flag
-
-The `-h` flag which is short for `--help` can be used to show you a guide on how to create a new project:
-
-```text
-$ gopamin new -h
-```
-
-The above command shows the help on how to use different flags to scaffold different types of projects.
-
-### The `-n` Flag
-
-The `-n` flag which is short for `--name` should be used for choosing a name for your project. For example:
-
-```text
-$ gopamin new -n my-hello-world-app -t hello-world -l log
-```
-
-Only ASCII letters, digits, and the characters `.`, `-`, and `_` are accepted and any other character will be replaced by `-`. You can also pick your repository name as follows:
-
-```text
-$ gopamin new -n github.com/user-name/repo_name -t hello-world -l log
-```
-
-In this case, the project folder will be named `github.com-user-name-repo_name` but the name of the module inside the `go.mod` will be as follows:
-
-```text
-module github.com/user-name/repo_name
-
-go 1.26.0
 ```
 
 ## Guides
