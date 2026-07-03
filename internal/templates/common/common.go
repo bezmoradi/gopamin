@@ -112,6 +112,17 @@ func AgentsTemplate() ([]byte, string) {
 	return agents, "AGENTS.md"
 }
 
+//go:embed files/arch-lint.tmpl
+var archLint []byte
+
+// ArchLintTemplate renders the go-arch-lint boundary-enforcement config. It is
+// emitted for every project type that has adapters to enforce (api, web-app,
+// worker, and hello-world with a database); the component/dep set is shaped by the
+// project's type/platform/broker/database so no empty component is ever declared.
+func ArchLintTemplate() ([]byte, string) {
+	return archLint, ".go-arch-lint.yml"
+}
+
 //go:embed files/internal/adapters/repositories/mock/repository.tmpl
 var mockRepository []byte
 

@@ -58,6 +58,7 @@ func buildWebApp(p *Project) {
 	fileGenerator([]string{"configs-test"}, p)
 	fileGenerator([]string{"tools"}, p)
 	fileGenerator([]string{"tools-test"}, p)
+	fileGenerator([]string{"arch-lint"}, p)
 	fileGenerator([]string{"web-app-server"}, p)
 	fileGenerator([]string{recipe.routes}, p)
 	fileGenerator([]string{recipe.users}, p)

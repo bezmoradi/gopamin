@@ -63,7 +63,7 @@ func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	if rowsAffected == 0 {
 		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(api.Response{Message: fmt.Sprintf("no user found with ID of %v", id)})
+		_ = json.NewEncoder(w).Encode(api.Response{Error: api.NotFoundError})
 		return
 	}
 

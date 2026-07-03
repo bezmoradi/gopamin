@@ -31,6 +31,7 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"gitignore":                 common.GitIgnoreTemplate,
 		"license":                   common.LicenseTemplate,
 		"agents":                    common.AgentsTemplate,
+		"arch-lint":                 common.ArchLintTemplate,
 		"mock-repository":           common.MockRepositoryTemplate,
 		"user-test":                 common.UserTestTemplate,
 		"user":                      common.UserTemplate,

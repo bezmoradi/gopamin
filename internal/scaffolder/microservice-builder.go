@@ -32,6 +32,7 @@ func buildWorker(p *Project) {
 	fileGenerator([]string{"configs-test"}, p)
 	fileGenerator([]string{"tools"}, p)
 	fileGenerator([]string{"tools-test"}, p)
+	fileGenerator([]string{"arch-lint"}, p)
 	fileGenerator([]string{"message"}, p)
 
 	if p.Database == "" {

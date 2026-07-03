@@ -54,7 +54,7 @@ func (router *router) DeleteUserHandler(c *gin.Context) {
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, api.Response{Message: fmt.Sprintf("no user found with ID of %v", id)})
+		c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 		return
 	}
 

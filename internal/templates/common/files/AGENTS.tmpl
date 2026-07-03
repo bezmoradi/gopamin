@@ -1,6 +1,83 @@
+{{- $isWeb := eq .ProjectType "web-app" -}}
+{{- $isWorker := eq .ProjectType "worker" -}}
+{{- $isHello := eq .ProjectType "hello-world" -}}
+{{- $isGraphql := and (eq .ProjectType "api") (eq .Platform "graphql") -}}
+{{- $isRest := and (eq .ProjectType "api") (ne .Platform "graphql") -}}
+{{- $hasHTTP := or (eq .ProjectType "api") (eq .ProjectType "web-app") -}}
+{{- $hasRealDB := ne .Database "" -}}
+{{- $usesMock := and (or (eq .ProjectType "api") (eq .ProjectType "web-app")) (eq .Database "") -}}
+{{- $hasRepo := or (ne .Database "") (or (eq .ProjectType "api") (eq .ProjectType "web-app")) -}}
+{{- $hasBroker := ne .Broker "" -}}
+{{- $hasDomain := or (ne .ProjectType "hello-world") (ne .Database "") -}}
+{{- $containerized := or (ne .Broker "") (and (ne .Database "") (not (or (eq .Database "sqlite") (eq .Database "badgerdb")))) -}}
 # AGENTS.md
 
-Guidance for AI coding agents (and humans) working in **{{.Name}}** — a {{.ProjectType}} project scaffolded by [Gopamin](https://github.com/bezmoradi/gopamin) using the Clean Architecture (Ports & Adapters) pattern.
+Guidance for AI coding agents (and humans) working in **{{.Name}}** — {{if eq .ProjectType "api"}}an{{else}}a{{end}} `{{.ProjectType}}` project scaffolded by [Gopamin](https://github.com/bezmoradi/gopamin) using the Clean Architecture (Ports & Adapters) pattern. This file follows the [AGENTS.md](https://agents.md) convention.
+
+## What this project is
+
+{{if $isRest -}}
+A JSON REST API built on the **{{.Platform}}** HTTP framework. It exposes a `User` resource under `/api/v1/users` behind a consistent JSON envelope — see [HTTP API](#http-api).
+{{- else if $isGraphql -}}
+A **GraphQL** API (graphql-go) exposing a `User` schema over a single `/graphql` endpoint — see [GraphQL API](#graphql-api).
+{{- else if $isWeb -}}
+A server-rendered **web application** on the **{{.Platform}}** HTTP framework: it renders HTML pages for a `User` resource and serves embedded CSS. The binary is self-contained — HTML/CSS are embedded via `//go:embed` — see [Web UI](#web-ui).
+{{- else if $isWorker -}}
+A **broker-driven worker** with no HTTP server. It connects to **{{.Broker}}**, publishes a sample message on startup, and consumes messages in a loop until interrupted — see [Broker workflow](#broker-workflow).
+{{- else -}}
+A minimal **hello-world** starter that demonstrates the Clean Architecture layout{{if $hasRealDB}} with a durable `{{.Database}}` repository{{end}}. Grow it by following the [dependency rule](#the-dependency-rule).
+{{- end}}
+
+## Project layout
+
+```text
+cmd/
+{{- if $hasHTTP}}
+  main.go  # entry point: constructs adapters, injects them, starts the server
+  server/  # HTTP server bootstrap
+{{- else}}
+  main.go  # entry point: wires adapters and runs the {{if $isWorker}}worker{{else}}program{{end}}
+{{- end}}
+internal/
+  core/
+{{- if $hasDomain}}
+    domain/    # business entities ({{if $isWorker}}Message{{if $hasRealDB}}, User{{end}}{{else}}User{{end}}) — no external imports
+{{- end}}
+    ports/     # interfaces the core owns (implemented by adapters)
+{{- if $hasRepo}}
+    services/  # use cases / business logic (depends only on ports)
+{{- end}}
+  adapters/  # implement the ports; the only place third-party libs live
+{{- if $isRest}}
+    handlers/{{.Platform}}/  # REST handlers + routing
+    api/  # shared JSON response/error envelope
+{{- else if $isGraphql}}
+    handlers/graphql/  # GraphQL schema + resolvers
+{{- else if $isWeb}}
+    handlers/{{.Platform}}/  # HTTP handlers that render HTML
+{{- end}}
+{{- if $hasRepo}}
+    repositories/
+      mock/  # in-memory repository{{if $usesMock}} (runtime store — NOT durable){{else}} (used by service unit tests){{end}}
+{{- if $hasRealDB}}
+      {{.Database}}/  # durable {{.Database}} repository
+{{- end}}
+{{- end}}
+{{- if $hasBroker}}
+    brokers/{{.Broker}}/  # {{.Broker}} producer + consumer
+{{- end}}
+    loggers/{{.Logger}}/  # logging adapter (implements the logger port)
+{{- if $isWeb}}
+  web/  # embedded HTML templates + CSS assets (//go:embed)
+{{- end}}
+configs/  # loads .env into the process environment
+tools/  # small project-root helpers
+.env  # configuration — see Environment variables
+{{- if $containerized}}
+docker-compose.yml  # {{if $hasRealDB}}{{.Database}}{{end}}{{if and $hasRealDB $hasBroker}} + {{end}}{{if $hasBroker}}{{.Broker}}{{end}} backing service(s)
+{{- end}}
+.go-arch-lint.yml  # architecture-boundary rules (make arch)
+```
 
 ## The dependency rule
 
@@ -18,43 +95,157 @@ Inner layers must never import outer ones. Concretely:
 - `internal/adapters/` — the only place third-party libraries live: HTTP/GraphQL handlers, repositories, message brokers, and loggers that implement the ports.
 - `cmd/` — the composition root: it constructs concrete adapters, injects them into services, and starts the process.
 
-### Adding a feature
-1. Define or extend the interface in `internal/core/ports/`.
-2. Put the business logic in `internal/core/services/` (depending only on ports).
-3. Implement the adapter under the matching `internal/adapters/...` package.
-
 Never import an `internal/adapters/...` package from `internal/core/...`.
 
+### This rule is enforced
+
+The dependency rule above is checked mechanically by `make arch` ([go-arch-lint](https://github.com/fe3dback/go-arch-lint), config in `.go-arch-lint.yml`). A violation **fails the build**. Fix it by moving the offending code to the correct layer — **never** by widening a `mayDependOn` list or adding an `anyVendorDeps` grant to the core. Loosening `.go-arch-lint.yml` to turn a red build green defeats the purpose of the architecture.
+
+If go-arch-lint ever reports a dependency you can't find in your imports, it's almost certainly `deepScan` tracing a dependency-injection call in `cmd` — leave `deepScan: false` (the config enforces the import graph, not data-flow).
+
+This project ships **no CI**, so nothing runs the check automatically yet. Wire `make arch-check` into your CI pipeline (or a pre-push hook) to make boundary violations actually block a merge — `arch-check` exits non-zero on a violation and also fails if the linter has been silently disabled.
+
 ## This project's stack
-{{- if eq .ProjectType "worker"}}
+{{- if $isWorker}}
 - Type: worker (broker-driven, no HTTP server)
 - Message broker: `{{.Broker}}` — adapter in `internal/adapters/brokers/{{.Broker}}`
 {{- else}}
-{{- if ne .ProjectType "hello-world"}}
+{{- if $hasHTTP}}
 - HTTP framework: `{{.Platform}}` — handlers in `internal/adapters/handlers/{{.Platform}}`
 {{- end}}
-{{- if eq .Database "mock"}}
-- Datastore: in-memory mock (`internal/adapters/repositories/mock`); no database was selected, so this is **not** durable and is not safe for production persistence.
-{{- else if ne .Database ""}}
+{{- end}}
+{{- if $usesMock}}
+- Datastore: in-memory mock (`internal/adapters/repositories/mock`) — no database selected, so data is **not durable** and not production-safe.
+{{- else if $hasRealDB}}
 - Database: `{{.Database}}` — repository in `internal/adapters/repositories/{{.Database}}`
 {{- end}}
-{{- end}}
 - Logger: `{{.Logger}}` — adapter in `internal/adapters/loggers/{{.Logger}}`
+{{- if $isRest}}
 
-## Build, run, and test
+## HTTP API
+
+Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "data"?, "error"?}`.
+
+| Method | Path | Purpose | Success |
+|---|---|---|---|
+| `GET` | `/api/v1/users` | list users | `200` |
+| `GET` | `/api/v1/users/:id` | fetch one | `200` |
+| `POST` | `/api/v1/users` | create — body `{"name":"..."}` | `201` |
+| `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}` | `200` |
+| `DELETE` | `/api/v1/users/:id` | delete | `200` |
+
+Status codes: `200`/`201` success · `400` malformed JSON body · `404` not found · `422` validation (e.g. empty name) · `500` datastore failure. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
 
 ```bash
-make run         # run the application
-make test        # run the test suite
-make test-cover  # run tests and open an HTML coverage report
-make fix         # apply Go 1.26 modernizers (go fix)
-make fix-check   # preview modernizer fixes without applying (go fix -diff)
+# create, then list (server on :8080 by default — see PORT)
+curl -s -XPOST localhost:8080/api/v1/users -H 'Content-Type: application/json' -d '{"name":"alice"}'
+#   -> 201 {"message":"Created user successfully","data":"<id>"}
+curl -s localhost:8080/api/v1/users
+#   -> 200 {"message":"Fetched users successfully","data":[{"id":"<id>","name":"alice"}]}
+curl -s localhost:8080/api/v1/users/does-not-exist
+#   -> 404 {"error":"Not found"}
 ```
+{{- end}}
+{{- if $isGraphql}}
 
-Configuration comes from environment variables loaded from `.env` (see that file for the keys this project expects).
+## GraphQL API
+
+Single endpoint: `POST /graphql` (GraphiQL is disabled). Schema and resolvers live in `internal/adapters/handlers/graphql`.
+
+- Type `User { id: String, name: String }`
+- Queries: `user(id: String): User` · `users: [User]`
+- Mutations: `create(name: String!): String` · `update(id: String!, name: String): String` · `delete(id: String!): String`
+
+```bash
+# create (server on :8080 by default — see PORT)
+curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"mutation { create(name: \"alice\") }"}'
+# query
+curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"{ users { id name } }"}'
+```
+{{- end}}
+{{- if $isWeb}}
+
+## Web UI
+
+Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/adapters/handlers/{{.Platform}}`; routes live under `/users`:
+
+| Method | Path | Renders |
+|---|---|---|
+| `GET` | `/users` | list page |
+| `GET` | `/users/:id` | detail page |
+| `POST` | `/users` | create (form submit) |
+| `PUT` | `/users/:id` | update |
+| `DELETE` | `/users/:id` | delete |
+
+Static assets are served from `/assets/*`. HTML templates and CSS live in `internal/web` and are **embedded into the binary** via `//go:embed`, so the compiled binary is self-contained (no runtime file dependencies). The server listens on `:8080` by default (see `PORT`).
+{{- end}}
+{{- if $isWorker}}
+
+## Broker workflow
+
+This worker has **no HTTP server**. On startup, `cmd/main.go`:
+
+1. connects to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`);
+2. publishes one sample `Message{Data: "Hello World"}` (JSON) to the `testing` {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}};
+3. runs a consume loop that logs every message as `message received`;
+4. shuts down gracefully on `SIGINT`/`SIGTERM` (via `signal.NotifyContext`).
+
+{{if eq .Broker "redis"}}The consumer subscribes at construction (before the startup publish), so the sample message is consumed on a fresh run. Redis pub/sub drops messages sent while no subscriber is connected — publish to the `testing` channel from another client (e.g. `redis-cli PUBLISH testing '...'`) to feed the running worker.{{else if eq .Broker "kafka"}}Kafka retains the topic log, so the sample message is consumed even though it is produced before the consumer starts. Produce more messages to the `testing` topic from any Kafka client to feed the running worker.{{else}}RabbitMQ queues the message, so the sample is consumed even though it is produced before the consumer starts. Publish more messages to the `testing` queue from any AMQP client to feed the running worker.{{end}}
+{{- end}}
+
+## Running
+
+{{if $containerized -}}
+This project needs its backing service running first.
+
+```bash
+make docker-up     # start {{if $hasRealDB}}{{.Database}}{{end}}{{if and $hasRealDB $hasBroker}} + {{end}}{{if $hasBroker}}{{.Broker}}{{end}} in Docker (docker-compose.yml)
+make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
+make docker-down   # stop the backing service (add docker-down-rm-vol to wipe volumes)
+```
+{{- else -}}
+```bash
+make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
+```
+{{- end}}
+
+## Environment variables
+
+Configuration is loaded from `.env` at the project root (via `godotenv`). Real shell environment variables take precedence over `.env`, so you can override any key inline (e.g. `PORT=9000 make run`).
+
+{{if $hasHTTP}}- `PORT` — HTTP listen port (default `8080`).
+{{end}}{{if $hasRealDB}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
+{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
+{{end}}See `.env` for the full, authoritative list of keys this project reads.
+
+## Testing
+
+```bash
+make test          # go test ./...
+make test-cover    # run tests and open an HTML coverage report
+```
+{{if $hasRepo}}The service layer is unit-tested against the in-memory **mock** repository (`internal/adapters/repositories/mock`), so tests need no running {{if $hasBroker}}database or broker{{else}}database{{end}}. {{end}}Tests are co-located (`*_test.go`). Note the service test imports the mock adapter — that deliberately crosses a layer and is excluded from `make arch` (via `excludeFiles` in `.go-arch-lint.yml`); enforce boundaries on production code, not tests.
+
+## Adding a feature
+
+1. Define or extend the interface in `internal/core/ports/`.
+2. Implement the use case in `internal/core/services/` (depending only on ports).
+3. Implement the adapter under the matching `internal/adapters/...` package.
+4. Wire the concrete adapter into the composition root in `cmd/main.go`.
+{{if $isRest}}
+To add an endpoint: add the port method and service logic, then a handler in `internal/adapters/handlers/{{.Platform}}` and register its route. Return results through the `api.Response` envelope (errors under `error`, data under `data`).
+{{- else if $isGraphql}}
+To add an operation: add the field/resolver in `internal/adapters/handlers/graphql` and the backing service method behind a port.
+{{- else if $isWeb}}
+To add a page: add the service method behind a port, a handler in `internal/adapters/handlers/{{.Platform}}`, and the template/asset under `internal/web`.
+{{- else if $isWorker}}
+To handle a new message type: add the domain type and a service method, then dispatch to it from the consume loop in `cmd/main.go`.
+{{- end}}
 
 ## Conventions
-- Keep everything under `internal/core/**` free of framework, database, and HTTP imports.
+- Keep everything under `internal/core/**` free of framework, database, and HTTP imports (`make arch` enforces this).
 - Adapters translate between the outside world and domain types; they hold no business rules.
 - Co-locate tests (`*_test.go`); the service layer is unit-tested against the in-memory mock repository.
-- Run `gofmt`, `go vet ./...`, and `go fix ./...` (Go 1.26 modernizers; preview with `make fix-check`) before committing.
+- Run `gofmt`, `go vet ./...`, `go fix ./...` (Go 1.26 modernizers; preview with `make fix-check`), and `make arch` before committing.

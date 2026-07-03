@@ -50,9 +50,7 @@ func (router *router) DeleteUserHandler(c *echo.Context) error {
 	}
 
 	if rowsAffected == 0 {
-		return c.JSON(http.StatusNotFound, api.Response{
-			Message: fmt.Sprintf("no user found with ID of %v", id),
-		})
+		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 	}
 
 	return c.JSON(http.StatusOK, api.Response{

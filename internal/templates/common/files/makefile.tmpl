@@ -12,3 +12,22 @@ fix:
 
 fix-check:
 	@go fix -diff ./...
+
+GO_ARCH_LINT_VERSION := v1.15.0
+
+# arch: verify the Clean Architecture dependency rule (.go-arch-lint.yml / AGENTS.md).
+# Pinned via `go run …@version` so the linter never enters this project's go.mod.
+arch:
+	@go run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION) check --output-color=false
+
+# arch-check: CI/gate variant. Fails on a boundary violation AND refuses to pass if
+# the linter — or its vendor-import lock that guards the pure core — has been disabled
+# while still exiting 0 (the banner flips to "Off"). Loosening the config to make a
+# red build green defeats the scaffold; this catches that.
+arch-check:
+	@out="$$(go run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION) check --output-color=false 2>&1)"; \
+	rc=$$?; \
+	printf '%s\n' "$$out"; \
+	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
+	printf '%s\n' "$$out" | grep -Eq '^[[:space:]]*On \| Base: component imports' || { echo 'arch-check: component-imports linter is OFF — refusing to pass'; exit 1; }; \
+	printf '%s\n' "$$out" | grep -Eq '^[[:space:]]*On \| Advanced: vendor imports' || { echo 'arch-check: vendor-import lock is OFF (core purity unguarded) — refusing to pass'; exit 1; }

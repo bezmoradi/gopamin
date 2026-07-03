@@ -82,6 +82,7 @@ func buildAPI(p *Project) {
 	fileGenerator([]string{"configs-test"}, p)
 	fileGenerator([]string{"tools"}, p)
 	fileGenerator([]string{"tools-test"}, p)
+	fileGenerator([]string{"arch-lint"}, p)
 	for _, key := range recipe.files {
 		fileGenerator([]string{key}, p)
 	}

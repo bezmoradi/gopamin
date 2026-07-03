@@ -32,5 +32,15 @@ Running the following command will yield identical functionality:
 $ go test -v ./...
 ```
 
-The `-v` flag is used here in order to output test details while running the tests.  
+The `-v` flag is used here in order to output test details while running the tests.
 Another testing command is also added to the `Makefile` called `test-cover` which will create a text file called `test-coverage.txt` at the root path of the project then open up a new browser tab showing the test coverage results.
+
+## Enforce Architecture Boundaries
+
+This project follows Clean Architecture: dependencies point inward only (`cmd → adapters → services → ports ← domain`). That rule is enforced mechanically by [go-arch-lint](https://github.com/fe3dback/go-arch-lint) using the generated `.go-arch-lint.yml`. To check it:
+
+```text
+$ make arch
+```
+
+A boundary violation — a database driver leaking into the domain, a service importing an HTTP handler, a stray package outside every layer — **fails the check**. Fix it by moving the code to the correct layer, not by loosening `.go-arch-lint.yml`. The `arch-check` target is the CI-friendly variant (it additionally refuses to pass if the linter has been disabled). The linter runs via `go run …@<pinned-version>`, so it never becomes a dependency of this project.
