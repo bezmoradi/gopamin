@@ -127,7 +127,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.User{}, domain.ErrUserNotFound
 		}
-		return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		return domain.User{}, fmt.Errorf("error fetching data: %w", err)
 	}
 
 	return user, nil

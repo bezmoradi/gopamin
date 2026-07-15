@@ -73,7 +73,7 @@ func (r *rabbitmqBroker) Consume(ctx context.Context, handler func(value []byte)
 
 	go func() {
 		for msg := range messages {
-			handler([]byte(msg.Body))
+			handler(msg.Body)
 		}
 	}()
 	<-ctx.Done()

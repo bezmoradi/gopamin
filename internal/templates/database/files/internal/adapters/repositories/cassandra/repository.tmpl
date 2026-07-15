@@ -2,6 +2,7 @@ package cassandra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
@@ -153,10 +154,10 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	).Consistency(gocql.One).ScanContext(ctx, &user.Id, &user.Name)
 
 	if err != nil {
-		if err == gocql.ErrNotFound {
+		if errors.Is(err, gocql.ErrNotFound) {
 			return domain.User{}, domain.ErrUserNotFound
 		}
-		return domain.User{}, fmt.Errorf("error fetching data: %v", err)
+		return domain.User{}, fmt.Errorf("error fetching data: %w", err)
 	}
 
 	return user, nil
