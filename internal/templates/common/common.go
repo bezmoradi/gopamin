@@ -133,6 +133,17 @@ func AgentsTemplate() ([]byte, string) {
 	return agents, "AGENTS.md"
 }
 
+//go:embed files/golangci.tmpl
+var golangci []byte
+
+// GolangciTemplate renders the golangci-lint config (.golangci.yml, schema v2). It
+// is emitted for every project type; the enabled linter set is combination-invariant
+// (it does not depend on framework/db/broker/logger), so a single static config
+// works for all shapes. Run via `make lint` (version pinned in the Makefile).
+func GolangciTemplate() ([]byte, string) {
+	return golangci, ".golangci.yml"
+}
+
 //go:embed files/arch-lint.tmpl
 var archLint []byte
 

@@ -13,6 +13,14 @@ fix:
 fix-check:
 	@go fix -diff ./...
 
+GOLANGCI_LINT_VERSION := v2.10.1
+
+# lint: run golangci-lint (config in .golangci.yml). Pinned via `go run …@version`
+# so the linter never enters this project's go.mod, matching `make arch`. The first
+# run compiles the linter (slow, one-time); later runs use the build cache.
+lint:
+	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+
 GO_ARCH_LINT_VERSION := v1.15.0
 
 # arch: verify the Clean Architecture dependency rule (.go-arch-lint.yml / AGENTS.md).

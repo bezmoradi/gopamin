@@ -33,6 +33,7 @@ func buildHelloWorld(p *Project) {
 	fileGenerator([]string{"tools"}, p)
 	fileGenerator([]string{"tools-test"}, p)
 	fileGenerator([]string{"arch-lint"}, p)
+	fileGenerator([]string{"golangci"}, p)
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
 }

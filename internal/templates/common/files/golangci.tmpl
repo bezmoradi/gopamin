@@ -1,0 +1,15 @@
+# golangci-lint configuration (schema v2). Runs a suite of static analyzers in a
+# single pass over the codebase — the standard set (errcheck, govet, ineffassign,
+# staticcheck, unused) plus a few high-signal extras. Invoke it with `make lint`;
+# the version is pinned in the Makefile and run via `go run …@version`, so
+# golangci-lint never enters this project's go.mod (the same stance as `make arch`).
+version: "2"
+
+linters:
+  # `standard` = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - errorlint      # error comparisons/formatting that break on wrapped errors (use errors.Is / %w)
+    - misspell       # common English misspellings in comments and strings
+    - unconvert      # unnecessary type conversions
+    - usestdlibvars  # prefer stdlib constants (e.g. http.StatusOK) over magic values
