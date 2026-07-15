@@ -24,6 +24,10 @@ type Project struct {
 	Path        string
 	ProjectType string
 	Logger      string
+	// GoVersion is the pinned Go version (== generatedGoVersion) exposed to
+	// templates so the Dockerfile's build image never drifts from the go.mod
+	// `go` directive.
+	GoVersion string
 }
 
 func New(projectType, platform, broker, name, database, logger string) {
@@ -51,6 +55,7 @@ func New(projectType, platform, broker, name, database, logger string) {
 		Path:        projectPath,
 		ProjectType: projectType,
 		Logger:      logger,
+		GoVersion:   generatedGoVersion,
 	}
 
 	if err := generateProjectAgnosticFiles(&p); err != nil {

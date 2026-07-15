@@ -17,6 +17,9 @@ import (
 
 func Serve(schema graphql.Schema, logger ports.Logger) {
 	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
 
 	mux := http.NewServeMux()

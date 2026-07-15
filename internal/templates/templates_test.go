@@ -20,6 +20,7 @@ type sampleProject struct {
 	ProjectType string
 	Logger      string
 	Path        string
+	GoVersion   string
 }
 
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell
@@ -39,6 +40,7 @@ func TestAllTemplatesRenderAndParse(t *testing.T) {
 		ProjectType: "api",
 		Logger:      "zap",
 		Path:        "/tmp/app",
+		GoVersion:   "1.26.0",
 	}
 
 	for key, gen := range Mapper() {

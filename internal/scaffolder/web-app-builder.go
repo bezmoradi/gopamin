@@ -59,6 +59,8 @@ func buildWebApp(p *Project) {
 	fileGenerator([]string{"tools"}, p)
 	fileGenerator([]string{"tools-test"}, p)
 	fileGenerator([]string{"arch-lint"}, p)
+	fileGenerator([]string{"dockerfile"}, p)
+	fileGenerator([]string{"dockerignore"}, p)
 	fileGenerator([]string{"web-app-server"}, p)
 	fileGenerator([]string{recipe.routes}, p)
 	fileGenerator([]string{recipe.users}, p)

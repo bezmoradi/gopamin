@@ -28,6 +28,8 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"makefile":                  common.MakefileTemplate,
 		"docker-compose":            common.DockerComposeTemplate,
 		"docker-makefile":           common.DockerMakefileTemplate,
+		"dockerfile":                common.DockerfileTemplate,
+		"dockerignore":              common.DockerignoreTemplate,
 		"gitignore":                 common.GitIgnoreTemplate,
 		"license":                   common.LicenseTemplate,
 		"agents":                    common.AgentsTemplate,

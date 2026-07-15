@@ -1,0 +1,29 @@
+# Keep the build context small and free of secrets. Only Go source + go.mod/go.sum
+# are needed to compile the binary; everything below is noise or must not ship.
+
+# Version control.
+.git
+.gitignore
+
+# Docker / build meta (not needed to compile).
+Dockerfile
+.dockerignore
+docker-compose.yml
+Makefile
+
+# Local secrets & config — inject env vars at run time instead of baking them in.
+.env
+
+# Docs, CI, and lint config — irrelevant to the build.
+README.md
+AGENTS.md
+LICENSE
+.go-arch-lint.yml
+.github
+
+# Runtime & test artifacts.
+docker/
+*.db
+badger
+logs.txt
+test-coverage.txt

@@ -39,6 +39,27 @@ func DockerComposeTemplate() ([]byte, string) {
 	return dockerCompose, "docker-compose.yml"
 }
 
+//go:embed files/dockerfile.tmpl
+var dockerfile []byte
+
+// DockerfileTemplate renders a multi-stage Dockerfile that compiles the service and
+// ships only the binary on a minimal, non-root distroless base. sqlite selects the
+// cgo driver, so it builds with cgo on and runs on a libc base (distroless/base);
+// every other database builds a static binary on the smaller distroless/static. The
+// build image tag comes from .GoVersion so it never drifts from the go.mod directive.
+func DockerfileTemplate() ([]byte, string) {
+	return dockerfile, "Dockerfile"
+}
+
+//go:embed files/dockerignore.tmpl
+var dockerignore []byte
+
+// DockerignoreTemplate keeps the build context lean and secret-free (excludes .env,
+// .git, docs, and runtime artifacts).
+func DockerignoreTemplate() ([]byte, string) {
+	return dockerignore, ".dockerignore"
+}
+
 //go:embed files/internal/core/ports/event-publisher.interface.tmpl
 var eventPublisherInterface []byte
 
