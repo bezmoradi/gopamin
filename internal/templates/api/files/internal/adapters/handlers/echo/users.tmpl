@@ -31,7 +31,7 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 	}
 
 	result, err := router.service.Create(c.Request().Context(), body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
 	}
 	if err != nil {
@@ -88,7 +88,7 @@ func (router *router) UpdateUserHandler(c *echo.Context) error {
 	}
 
 	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
 	}
 	if err != nil {

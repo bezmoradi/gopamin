@@ -5,12 +5,24 @@ import (
 	"errors"
 )
 
+// MaxNameLength bounds a user's name so it can't overflow the datastore column;
+// kept in lockstep with the repositories' schema and enforced in the service, so
+// an over-long name is a client error (422) rather than a driver error (500).
+const MaxNameLength = 100
+
 // Sentinel errors let adapters classify failures so HTTP handlers can map them
 // to the correct status code without leaking driver internals to clients.
 var (
 	ErrUserNotFound = errors.New("user not found")
 	ErrNameRequired = errors.New("name is required")
+	ErrNameTooLong  = errors.New("name is too long")
 )
+
+// IsValidationError reports whether err is a client input-validation failure,
+// which handlers map to HTTP 422 (Unprocessable Entity).
+func IsValidationError(err error) bool {
+	return errors.Is(err, ErrNameRequired) || errors.Is(err, ErrNameTooLong)
+}
 
 type User struct {
 	Id   string `json:"id"`

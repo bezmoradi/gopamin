@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"{{.Name}}/internal/core/domain"
 	"{{.Name}}/internal/core/ports"
@@ -27,6 +28,9 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 	if name == "" {
 		return "", domain.ErrNameRequired
 	}
+	if utf8.RuneCountInString(name) > domain.MaxNameLength {
+		return "", domain.ErrNameTooLong
+	}
 
 	return us.repo.Insert(ctx, name)
 }
@@ -34,6 +38,9 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 func (us *userService) Update(ctx context.Context, id string, newName string) (int64, error) {
 	if newName == "" {
 		return 0, domain.ErrNameRequired
+	}
+	if utf8.RuneCountInString(newName) > domain.MaxNameLength {
+		return 0, domain.ErrNameTooLong
 	}
 
 	return us.repo.Update(ctx, id, newName)

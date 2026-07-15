@@ -32,7 +32,7 @@ func (router *router) CreateUserHandler(c *gin.Context) {
 	}
 
 	result, err := router.service.Create(c.Request.Context(), body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
 		return
 	}
@@ -95,7 +95,7 @@ func (router *router) UpdateUserHandler(c *gin.Context) {
 	}
 
 	rowsAffected, err := router.service.Update(c.Request.Context(), c.Param("id"), body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
 		return
 	}

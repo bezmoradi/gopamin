@@ -35,7 +35,7 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := router.service.Create(r.Context(), body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.RequiredField})
 		return
@@ -116,7 +116,7 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rowsAffected, err := router.service.Update(r.Context(), id, body.Name)
-	if errors.Is(err, domain.ErrNameRequired) {
+	if domain.IsValidationError(err) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.RequiredField})
 		return
