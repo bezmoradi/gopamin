@@ -194,6 +194,10 @@ Two orchestration endpoints are mounted at the transport layer (in `cmd/server`)
 | `GET` | `/readyz` | readiness — ready to accept traffic | `200 {"status":"ready"}` |
 
 Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kubernetes). The handlers live in `internal/adapters/handlers/health`; extend `Ready` to check critical dependencies (database, broker) and return `503` when any is unavailable, so the readiness probe can gate traffic.
+
+## Middleware
+
+Requests to the application handler pass through a framework-agnostic middleware chain composed in `cmd/server` (package `internal/adapters/handlers/middleware`): **recover** (a panic becomes a logged `500`, not a crash), **request logging** (method, path, status, duration), **CORS** (permissive by default — tighten `Access-Control-Allow-Origin` before production), and a **per-request timeout** (bounds the request `context` so a slow datastore call can't hang forever). The health endpoints are mounted outside the chain, so probes stay cheap and unlogged.
 {{- end}}
 {{- if $isWorker}}
 

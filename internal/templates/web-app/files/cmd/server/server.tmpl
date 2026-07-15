@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"{{.Name}}/internal/adapters/handlers/health"
+	"{{.Name}}/internal/adapters/handlers/middleware"
 	"{{.Name}}/internal/core/ports"
 )
 
@@ -25,7 +26,13 @@ func Serve(handlers ports.RouterInterface, logger ports.Logger) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health.Live)
 	mux.HandleFunc("/readyz", health.Ready)
-	mux.Handle("/", handlers.Register())
+	mux.Handle("/", middleware.Chain(
+		handlers.Register(),
+		middleware.Recover(logger),
+		middleware.RequestLogger(logger),
+		middleware.CORS,
+		middleware.Timeout(10*time.Second),
+	))
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),

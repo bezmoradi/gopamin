@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"{{.Name}}/internal/adapters/handlers/health"
+	"{{.Name}}/internal/adapters/handlers/middleware"
 	"{{.Name}}/internal/core/ports"
 
 	"github.com/graphql-go/graphql"
@@ -24,12 +25,18 @@ func Serve(schema graphql.Schema, logger ports.Logger) {
 	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
 
 	mux := http.NewServeMux()
-	mux.Handle("/graphql", handler.New(&handler.Config{
-		Schema:     &schema,
-		Pretty:     true,
-		GraphiQL:   false,
-		Playground: true,
-	}))
+	mux.Handle("/graphql", middleware.Chain(
+		handler.New(&handler.Config{
+			Schema:     &schema,
+			Pretty:     true,
+			GraphiQL:   false,
+			Playground: true,
+		}),
+		middleware.Recover(logger),
+		middleware.RequestLogger(logger),
+		middleware.CORS,
+		middleware.Timeout(10*time.Second),
+	))
 	mux.HandleFunc("/healthz", health.Live)
 	mux.HandleFunc("/readyz", health.Ready)
 

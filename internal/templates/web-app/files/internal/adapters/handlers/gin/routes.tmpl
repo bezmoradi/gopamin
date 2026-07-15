@@ -15,7 +15,7 @@ type router struct {
 
 func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
 	return &router{
-		engine:       gin.Default(),
+		engine:       gin.New(),
 		globalPrefix: "/users",
 		service:      service,
 	}

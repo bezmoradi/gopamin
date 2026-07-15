@@ -1,0 +1,99 @@
+// Package middleware provides transport-layer HTTP middleware applied to every
+// request regardless of the underlying framework: panic recovery, request
+// logging, permissive CORS, and a per-request timeout. They are composed in
+// cmd/server and wrap the framework's http.Handler.
+package middleware
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"{{.Name}}/internal/core/ports"
+)
+
+// Chain applies the given middleware to h so that the first one listed is the
+// outermost wrapper (it runs first on the way in and last on the way out).
+func Chain(h http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(middleware) - 1; i >= 0; i-- {
+		h = middleware[i](h)
+	}
+	return h
+}
+
+// Recover turns a panic in a downstream handler into a logged 500 response, so a
+// single bad request cannot crash the server.
+func Recover(logger ports.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					logger.Error(fmt.Sprintf("panic recovered: %v", rec))
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequestLogger logs one line per request: method, path, status, and duration.
+func RequestLogger(logger ports.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			logger.Info("request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", rec.status,
+				"duration", time.Since(start).String(),
+			)
+		})
+	}
+}
+
+// Timeout bounds each request's context so a slow handler or datastore call
+// cannot hang a request indefinitely.
+func Timeout(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// CORS sets permissive CORS headers (tighten Allow-Origin before production) and
+// short-circuits preflight OPTIONS requests.
+func CORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// statusRecorder captures the response status code so RequestLogger can report it.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap lets http.ResponseController reach the underlying ResponseWriter.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}

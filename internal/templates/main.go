@@ -36,6 +36,7 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"arch-lint":                 common.ArchLintTemplate,
 		"golangci":                  common.GolangciTemplate,
 		"health-handler":            common.HealthHandlerTemplate,
+		"middleware":                common.MiddlewareTemplate,
 		"mock-repository":           common.MockRepositoryTemplate,
 		"user-test":                 common.UserTestTemplate,
 		"user":                      common.UserTemplate,

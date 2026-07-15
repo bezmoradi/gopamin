@@ -133,6 +133,16 @@ func AgentsTemplate() ([]byte, string) {
 	return agents, "AGENTS.md"
 }
 
+//go:embed files/internal/adapters/handlers/middleware/middleware.tmpl
+var middleware []byte
+
+// MiddlewareTemplate renders the transport-layer HTTP middleware (recover, request
+// logging, CORS, per-request timeout) that cmd/server composes around the framework
+// handler. Emitted for api and web-app — the project types that run an HTTP server.
+func MiddlewareTemplate() ([]byte, string) {
+	return middleware, "internal/adapters/handlers/middleware/middleware.go"
+}
+
 //go:embed files/internal/adapters/handlers/health/health.tmpl
 var healthHandler []byte
 
