@@ -65,6 +65,15 @@ func New(projectType, platform, broker, name, database, logger string) {
 	}
 
 	buildersMap[p.ProjectType](&p)
+
+	// `go get -u` records every dependency as `// indirect`; run `go mod tidy`
+	// once, after all files and go-gets, so directly-imported modules are promoted
+	// to direct requirements and anything unused is dropped. Non-fatal: the project
+	// is already complete and its go.mod is valid, so a tidy hiccup (e.g. a transient
+	// network failure) should surface a warning, not discard the generated project.
+	if err := goModTidy(p.Path); err != nil {
+		color.Yellow("warning: go mod tidy failed: %v", err)
+	}
 }
 
 func IsProjectNameTaken(name string) bool {
@@ -189,6 +198,10 @@ func initGoMod(projectName string, appDir string) error {
 
 func initGit(appDir string) error {
 	return executeCommand("git", []string{"init"}, appDir)
+}
+
+func goModTidy(appDir string) error {
+	return executeCommand("go", []string{"mod", "tidy"}, appDir)
 }
 
 func goGetPackages(appDir string, packages []string) error {
