@@ -78,17 +78,14 @@ func main() {
 	}
 	us := services.NewUserService(db)
 
-	// Step 1) Uncomment the following line to add new values to the DB
-	// insert(us, logger, "John Doe")
-
-	// Step 2) Uncomment the following line to fetch by ID
-	// fetch(us, logger, "<record_id>")
-
-	// Step 3) Uncomment the following line to update
-	// update(us, logger, "<record_id>", "Jane Doe")
-
-	// Step 4) Uncomment the following line to delete
-	// deleteUser(us, logger, "<record_id>")
+	// fetchAll runs below. The other helpers show the remaining operations — swap in
+	// a call to try one:
+	//   insert(us, logger, "John Doe")
+	//   fetch(us, logger, "<record_id>")
+	//   update(us, logger, "<record_id>", "Jane Doe")
+	//   deleteUser(us, logger, "<record_id>")
+	// The blank assignment keeps them referenced so `make lint` stays clean until used.
+	_, _, _, _ = insert, fetch, update, deleteUser
 
 	fetchAll(us, logger)
 }
