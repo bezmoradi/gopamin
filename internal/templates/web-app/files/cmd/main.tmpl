@@ -3,6 +3,9 @@ package main
 import (
 	{{- if .Broker}}
 	"context"
+	"os"
+	"os/signal"
+	"syscall"
 	{{- end}}
 	"{{.Name}}/cmd/server"
 	"{{.Name}}/configs"
@@ -31,11 +34,19 @@ func main() {
 
 	service := services.NewUserService(db).WithPublisher(broker)
 
+	// The consumer runs alongside the HTTP server; bind it to a signal context so
+	// Ctrl+C / SIGTERM unblocks Consume and it drains instead of being killed
+	// mid-message. The HTTP server manages its own shutdown inside server.Serve.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Consumer side: process events off the broker alongside the HTTP server.
 	go func() {
-		_ = broker.Consume(context.Background(), func(value []byte) {
+		if err := broker.Consume(ctx, func(value []byte) {
 			logger.Info("event received", "payload", string(value))
-		})
+		}); err != nil && ctx.Err() == nil {
+			logger.Error(err.Error())
+		}
 	}()
 {{- else}}
 	service := services.NewUserService(db)
