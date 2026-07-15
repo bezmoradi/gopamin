@@ -65,6 +65,7 @@ func buildWebApp(p *Project) {
 	fileGenerator([]string{"web-app-server"}, p)
 	fileGenerator([]string{recipe.routes}, p)
 	fileGenerator([]string{recipe.users}, p)
+	fileGenerator([]string{"health-handler"}, p)
 	fileGenerator([]string{"router-interface"}, p)
 	fileGenerator([]string{"web-app-styles"}, p)
 	fileGenerator([]string{"web-app-users-html-template"}, p)

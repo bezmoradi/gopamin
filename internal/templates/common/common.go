@@ -133,6 +133,16 @@ func AgentsTemplate() ([]byte, string) {
 	return agents, "AGENTS.md"
 }
 
+//go:embed files/internal/adapters/handlers/health/health.tmpl
+var healthHandler []byte
+
+// HealthHandlerTemplate renders the shared liveness/readiness handler (/healthz,
+// /readyz), mounted by each HTTP framework's router. Emitted for api and web-app —
+// the project types that run an HTTP server.
+func HealthHandlerTemplate() ([]byte, string) {
+	return healthHandler, "internal/adapters/handlers/health/health.go"
+}
+
 //go:embed files/golangci.tmpl
 var golangci []byte
 

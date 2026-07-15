@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/core/ports"
 
 	"github.com/graphql-go/graphql"
@@ -29,6 +30,8 @@ func Serve(schema graphql.Schema, logger ports.Logger) {
 		GraphiQL:   false,
 		Playground: true,
 	}))
+	mux.HandleFunc("/healthz", health.Live)
+	mux.HandleFunc("/readyz", health.Ready)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),

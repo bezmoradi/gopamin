@@ -1,0 +1,29 @@
+// Package health exposes liveness and readiness endpoints for orchestration probes
+// (e.g. Kubernetes liveness/readiness). The handlers are plain net/http, so every
+// framework can mount them at /healthz and /readyz.
+package health
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// Live reports process liveness: it returns 200 as long as the server is running.
+// Wire it to a liveness probe (GET /healthz).
+func Live(w http.ResponseWriter, _ *http.Request) {
+	writeStatus(w, http.StatusOK, "ok")
+}
+
+// Ready reports readiness to accept traffic: it returns 200 when the service is
+// ready. Extend it to check critical dependencies (database, broker) and return
+// http.StatusServiceUnavailable when any is down, so a readiness probe can gate
+// traffic (GET /readyz).
+func Ready(w http.ResponseWriter, _ *http.Request) {
+	writeStatus(w, http.StatusOK, "ready")
+}
+
+func writeStatus(w http.ResponseWriter, code int, status string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+}

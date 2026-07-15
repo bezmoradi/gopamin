@@ -89,6 +89,7 @@ func buildAPI(p *Project) {
 	for _, key := range recipe.files {
 		fileGenerator([]string{key}, p)
 	}
+	fileGenerator([]string{"health-handler"}, p)
 	goGetPackages(p.Path, recipe.packages)
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)

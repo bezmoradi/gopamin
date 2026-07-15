@@ -182,6 +182,19 @@ Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/ada
 
 Static assets are served from `/assets/*`. HTML templates and CSS live in `internal/web` and are **embedded into the binary** via `//go:embed`, so the compiled binary is self-contained (no runtime file dependencies). The server listens on `:8080` by default (see `PORT`).
 {{- end}}
+{{- if $hasHTTP}}
+
+## Health & readiness
+
+Two orchestration endpoints are mounted at the transport layer (in `cmd/server`), so they work regardless of the HTTP framework:
+
+| Method | Path | Purpose | Success |
+|---|---|---|---|
+| `GET` | `/healthz` | liveness — the process is running | `200 {"status":"ok"}` |
+| `GET` | `/readyz` | readiness — ready to accept traffic | `200 {"status":"ready"}` |
+
+Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kubernetes). The handlers live in `internal/adapters/handlers/health`; extend `Ready` to check critical dependencies (database, broker) and return `503` when any is unavailable, so the readiness probe can gate traffic.
+{{- end}}
 {{- if $isWorker}}
 
 ## Broker workflow
