@@ -11,13 +11,13 @@ import (
 
 	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/adapters/handlers/middleware"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
 )
 
-func Serve(schema graphql.Schema, logger ports.Logger) {
+func Serve(schema graphql.Schema, logger shared.Logger) {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

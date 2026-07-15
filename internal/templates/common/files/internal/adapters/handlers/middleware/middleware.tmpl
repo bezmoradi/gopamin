@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 )
 
 // Chain applies the given middleware to h so that the first one listed is the
@@ -24,7 +24,7 @@ func Chain(h http.Handler, middleware ...func(http.Handler) http.Handler) http.H
 
 // Recover turns a panic in a downstream handler into a logged 500 response, so a
 // single bad request cannot crash the server.
-func Recover(logger ports.Logger) func(http.Handler) http.Handler {
+func Recover(logger shared.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -39,7 +39,7 @@ func Recover(logger ports.Logger) func(http.Handler) http.Handler {
 }
 
 // RequestLogger logs one line per request: method, path, status, and duration.
-func RequestLogger(logger ports.Logger) func(http.Handler) http.Handler {
+func RequestLogger(logger shared.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()

@@ -40,13 +40,23 @@ excludeFiles:
   - "^.*_test\\.go$"
 
 components:
-{{- if $hasDomain}}
-  domain:       { in: internal/core/domain }
-{{- end}}
-  ports:        { in: internal/core/ports }
+  # Cross-cutting infrastructure contracts (logger, and the router for HTTP types).
+  # Always present — every project ships a logger.
+  shared:        { in: internal/core/shared }
 {{- if $hasCore}}
-  services:     { in: internal/core/services }
+  # The `user` aggregate: its own domain / ports / services sub-packages. Grouping
+  # by aggregate (not by layer) is what lets a second feature be added as a sibling
+  # package instead of swelling flat folders — while arch-lint still enforces the
+  # layer direction WITHIN the aggregate (services -> ports -> domain).
+  user-domain:   { in: internal/core/user/domain }
+  user-ports:    { in: internal/core/user/ports }
+  user-services: { in: internal/core/user/services }
   repositories: { in: internal/adapters/repositories/* }
+{{- end}}
+{{- if eq .ProjectType "worker"}}
+  # The `message` aggregate (worker only) — a second bounded context, demonstrating
+  # the multi-aggregate layout. Only its domain is generated today.
+  message-domain: { in: internal/core/message/domain }
 {{- end}}
   loggers:      { in: internal/adapters/loggers/* }
 {{- if $hasHandlers}}
@@ -67,39 +77,38 @@ components:
   cmd:          { in: cmd }
 
 deps:
-  # PURE CORE. No `anyVendorDeps`: domain/ports/services are stdlib + each other only.
-  # (domain depends on nothing, so it is intentionally omitted from `deps`.)
-{{- if $hasDomain}}
-  ports:
-    mayDependOn: [domain]
-{{- end}}
+  # PURE CORE. No `anyVendorDeps`: the aggregates + shared are stdlib + each other
+  # only. Leaves (user-domain, message-domain, shared) depend on nothing, so they
+  # are omitted here; the layering within the user aggregate is enforced below.
 {{- if $hasCore}}
-  services:
-    mayDependOn: [domain, ports]
+  user-ports:
+    mayDependOn: [user-domain]
+  user-services:
+    mayDependOn: [user-domain, user-ports]
 {{- end}}
 
   # ADAPTERS — the only place third-party libraries may live.
 {{- if $hasCore}}
   repositories:
-    mayDependOn: [domain, ports]
+    mayDependOn: [user-domain, shared]
     anyVendorDeps: true          # database driver (the mock adapter has no vendor)
 {{- end}}
   loggers:
-    mayDependOn: [ports]
+    mayDependOn: [shared]
     anyVendorDeps: true          # zap / logrus (log / slog are stdlib)
 {{- if $hasHandlers}}
   handlers:
-    mayDependOn: [domain, ports, services{{if $hasApiResponse}}, api-response{{end}}{{if $hasWeb}}, web{{end}}]
+    mayDependOn: [user-domain, user-ports, shared{{if $hasApiResponse}}, api-response{{end}}{{if $hasWeb}}, web{{end}}]
     anyVendorDeps: true          # the chosen HTTP / GraphQL framework
 {{- end}}
 {{- if $hasApiResponse}}
   api-response:
-    mayDependOn: [domain]
+    mayDependOn: [user-domain]
     anyVendorDeps: true          # HTTP transport types / status helpers
 {{- end}}
 {{- if $hasBrokers}}
   brokers:
-    mayDependOn: [domain, ports{{if $hasCore}}, services{{end}}]
+    mayDependOn: [shared]
     anyVendorDeps: true          # kafka / rabbitmq / redis client
 {{- end}}
   configs:
@@ -113,10 +122,10 @@ deps:
   # COMPOSITION ROOT — the deliberate escape hatch, exactly one per project: cmd
   # constructs concrete adapters and injects them into services.
   cmd:
-    mayDependOn: [{{if $hasDomain}}domain, {{end}}ports, loggers, configs, tools{{if $hasCore}}, services, repositories{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
+    mayDependOn: [shared, loggers, configs, tools{{if $hasCore}}, user-domain, user-ports, user-services, repositories{{end}}{{if eq .ProjectType "worker"}}, message-domain{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
     anyVendorDeps: true
 {{- if $hasHandlers}}
   cmd-server:
-    mayDependOn: [domain, ports, services, repositories, loggers, configs, tools, handlers{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
+    mayDependOn: [shared, user-domain, user-ports, user-services, repositories, loggers, configs, tools, handlers{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
     anyVendorDeps: true
 {{- end}}

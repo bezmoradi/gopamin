@@ -140,9 +140,10 @@ func TestArchLintTemplateRendersValidConfig(t *testing.T) {
 		{ProjectType: "hello-world"},                                                  // plain: no domain/services
 	}
 
-	// Components present in every shape that emits the config. (domain is absent from
-	// a plain hello-world, so it is not in this set.)
-	always := []string{"ports", "loggers", "configs", "tools", "cmd"}
+	// Components present in every shape that emits the config. (The `shared` package —
+	// logger/router — is always present; the `user` aggregate is absent from a plain
+	// hello-world, so its components are not in this set.)
+	always := []string{"shared", "loggers", "configs", "tools", "cmd"}
 
 	for _, p := range shapes {
 		name := p.ProjectType + "/" + p.Platform + "/" + p.Broker + "/" + p.Database

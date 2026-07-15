@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/domain"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/internal/core/shared"
 	"os"
 	"strconv"
 
@@ -17,10 +17,10 @@ const tableName = "users"
 
 type connection struct {
 	db *sql.DB
-	logger ports.Logger
+	logger shared.Logger
 }
 
-func New(logger ports.Logger) (*connection, error) {
+func New(logger shared.Logger) (*connection, error) {
 	dburl := os.Getenv("SQLITE_DB_URL")
 	if dburl == "" {
 		// Fall back to a file in the working directory so the app runs even

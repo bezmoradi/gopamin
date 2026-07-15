@@ -1,7 +1,8 @@
 package http
 
 import (
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 )
 
@@ -11,7 +12,7 @@ type router struct {
 	service      ports.UserServiceInterface
 }
 
-func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+func NewRouter(service ports.UserServiceInterface) shared.RouterInterface {
 	return &router{
 		engine:       http.NewServeMux(),
 		globalPrefix: "/api/v1",

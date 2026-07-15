@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/domain"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/internal/core/shared"
 	"os"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -22,7 +22,7 @@ type mongodbUser struct {
 
 type connection struct {
 	db *mongo.Client
-	logger ports.Logger
+	logger shared.Logger
 }
 
 func mapMongodbToUser(m mongodbUser) domain.User {
@@ -32,7 +32,7 @@ func mapMongodbToUser(m mongodbUser) domain.User {
 	}
 }
 
-func New(logger ports.Logger) (*connection, error) {
+func New(logger shared.Logger) (*connection, error) {
 	host := os.Getenv("MONGODB_HOST")
 	port := os.Getenv("MONGODB_PORT")
 	username := os.Getenv("MONGODB_USERNAME")

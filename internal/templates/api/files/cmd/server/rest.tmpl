@@ -11,10 +11,10 @@ import (
 
 	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/adapters/handlers/middleware"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 )
 
-func Serve(handlers ports.RouterInterface, logger ports.Logger) {
+func Serve(handlers shared.RouterInterface, logger shared.Logger) {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

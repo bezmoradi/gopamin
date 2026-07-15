@@ -60,21 +60,21 @@ func DockerignoreTemplate() ([]byte, string) {
 	return dockerignore, ".dockerignore"
 }
 
-//go:embed files/internal/core/ports/event-publisher.interface.tmpl
+//go:embed files/internal/core/user/ports/event-publisher.interface.tmpl
 var eventPublisherInterface []byte
 
 func EventPublisherInterfaceTemplate() ([]byte, string) {
-	return eventPublisherInterface, "internal/core/ports/event-publisher.interface.go"
+	return eventPublisherInterface, "internal/core/user/ports/event-publisher.interface.go"
 }
 
-//go:embed files/internal/core/services/user.service-broker.tmpl
+//go:embed files/internal/core/user/services/user.service-broker.tmpl
 var userServiceBroker []byte
 
 // UserServiceBrokerTemplate renders to the same path as UserServiceTemplate, so
 // when a broker is selected the builder generates it after buildDatabase to
 // replace the plain user service with the publisher-aware variant.
 func UserServiceBrokerTemplate() ([]byte, string) {
-	return userServiceBroker, "internal/core/services/user.service.go"
+	return userServiceBroker, "internal/core/user/services/user.service.go"
 }
 
 //go:embed files/readme/readme.tmpl
@@ -200,60 +200,60 @@ func MockRepositoryTemplate() ([]byte, string) {
 	return mockRepository, "internal/adapters/repositories/mock/repository.go"
 }
 
-//go:embed files/internal/core/domain/user_test.tmpl
+//go:embed files/internal/core/user/domain/user_test.tmpl
 var userTest []byte
 
 func UserTestTemplate() ([]byte, string) {
-	return userTest, "internal/core/domain/user_test.go"
+	return userTest, "internal/core/user/domain/user_test.go"
 }
 
-//go:embed files/internal/core/domain/user.tmpl
+//go:embed files/internal/core/user/domain/user.tmpl
 var user []byte
 
 func UserTemplate() ([]byte, string) {
-	return user, "internal/core/domain/user.go"
+	return user, "internal/core/user/domain/user.go"
 }
 
-//go:embed files/internal/core/ports/user-repository.interface.tmpl
+//go:embed files/internal/core/user/ports/user-repository.interface.tmpl
 var userRepositoryInterface []byte
 
 func UserRepositoryInterfaceTemplate() ([]byte, string) {
-	return userRepositoryInterface, "internal/core/ports/user-repository.interface.go"
+	return userRepositoryInterface, "internal/core/user/ports/user-repository.interface.go"
 }
 
-//go:embed files/internal/core/ports/user-service.interface.tmpl
+//go:embed files/internal/core/user/ports/user-service.interface.tmpl
 var userServiceInterface []byte
 
 func UserServiceInterfaceTemplate() ([]byte, string) {
-	return userServiceInterface, "internal/core/ports/user-service.interface.go"
+	return userServiceInterface, "internal/core/user/ports/user-service.interface.go"
 }
 
-//go:embed files/internal/core/services/user.service.tmpl
+//go:embed files/internal/core/user/services/user.service.tmpl
 var userService []byte
 
 func UserServiceTemplate() ([]byte, string) {
-	return userService, "internal/core/services/user.service.go"
+	return userService, "internal/core/user/services/user.service.go"
 }
 
-//go:embed files/internal/core/services/user.service_test.tmpl
+//go:embed files/internal/core/user/services/user.service_test.tmpl
 var userServiceTest []byte
 
 func UserServiceTestTemplate() ([]byte, string) {
-	return userServiceTest, "internal/core/services/user.service_test.go"
+	return userServiceTest, "internal/core/user/services/user.service_test.go"
 }
 
-//go:embed files/internal/core/ports/router.interface.tmpl
+//go:embed files/internal/core/shared/router.interface.tmpl
 var routerInferface []byte
 
 func RouterInterfaceTemplate() ([]byte, string) {
-	return routerInferface, "internal/core/ports/router.interface.go"
+	return routerInferface, "internal/core/shared/router.interface.go"
 }
 
-//go:embed files/internal/core/ports/logger.interface.tmpl
+//go:embed files/internal/core/shared/logger.interface.tmpl
 var loggerInferface []byte
 
 func LoggerInterfaceTemplate() ([]byte, string) {
-	return loggerInferface, "internal/core/ports/logger.interface.go"
+	return loggerInferface, "internal/core/shared/logger.interface.go"
 }
 
 //go:embed files/internal/adapters/api/errors.tmpl
@@ -284,32 +284,32 @@ func ConfigsTestTemplate() ([]byte, string) {
 	return configsTest, "configs/configs_test.go"
 }
 
-//go:embed files/internal/core/domain/message.tmpl
+//go:embed files/internal/core/message/domain/message.tmpl
 var message []byte
 
 func MessageTemplate() ([]byte, string) {
-	return message, "internal/core/domain/message.go"
+	return message, "internal/core/message/domain/message.go"
 }
 
-//go:embed files/internal/core/ports/broker-service.interface.tmpl
+//go:embed files/internal/core/message/ports/broker-service.interface.tmpl
 var brokerServiceInterface []byte
 
 func BrokerServiceInterfaceTemplate() ([]byte, string) {
-	return brokerServiceInterface, "internal/core/ports/broker-service.interface.go"
+	return brokerServiceInterface, "internal/core/message/ports/broker-service.interface.go"
 }
 
-//go:embed files/internal/core/ports/message-broker.interface.tmpl
+//go:embed files/internal/core/message/ports/message-broker.interface.tmpl
 var messageBrokerInterface []byte
 
 func MessageBrokerInterfaceTemplate() ([]byte, string) {
-	return messageBrokerInterface, "internal/core/ports/message-broker.interface.go"
+	return messageBrokerInterface, "internal/core/message/ports/message-broker.interface.go"
 }
 
-//go:embed files/internal/core/services/broker.service.tmpl
+//go:embed files/internal/core/message/services/broker.service.tmpl
 var brokerService []byte
 
 func BrokerServiceTemplate() ([]byte, string) {
-	return brokerService, "internal/core/services/broker.service.go"
+	return brokerService, "internal/core/message/services/broker.service.go"
 }
 
 //go:embed files/tools/tools.tmpl

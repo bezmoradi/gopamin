@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/domain"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/internal/core/shared"
 	"os"
 	"strconv"
 
@@ -27,7 +27,7 @@ type dynamodbUser struct {
 
 type connection struct {
 	db *dynamodb.Client
-	logger ports.Logger
+	logger shared.Logger
 }
 
 func mapDynamodbToUser(d dynamodbUser) domain.User {
@@ -37,7 +37,7 @@ func mapDynamodbToUser(d dynamodbUser) domain.User {
 	}
 }
 
-func New(logger ports.Logger) (*connection, error) {
+func New(logger shared.Logger) (*connection, error) {
 	databaseAccessKeyID := os.Getenv("DYNAMODB_ACCESS_KEY_ID")
 	databaseSecretAccessKey := os.Getenv("DYNAMODB_SECRET_ACCESS_KEY")
 	databaseSessionToken := os.Getenv("DYNAMODB_SESSION_TOKEN")

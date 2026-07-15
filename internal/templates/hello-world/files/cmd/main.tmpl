@@ -5,7 +5,7 @@ import (
 
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 )
 
 func init() {
@@ -16,7 +16,7 @@ func projectName() string {
 	return os.Getenv("PROJECT_NAME")
 }
 
-func logMessage(logger ports.Logger, message string) {
+func logMessage(logger shared.Logger, message string) {
 	logger.Info(message)
 }
 

@@ -3,7 +3,7 @@ package logrus
 import (
 	"io"
 	"os"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 
 	"github.com/sirupsen/logrus"
 )
@@ -12,7 +12,7 @@ type logger struct {
 	logger *logrus.Logger
 }
 
-func New(fileName ...string) ports.Logger {
+func New(fileName ...string) shared.Logger {
 	var out io.Writer
 	if len(fileName) > 0 {
 		file, err := os.OpenFile(fileName[0], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)

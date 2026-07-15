@@ -3,7 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -16,7 +16,7 @@ type rabbitmqBroker struct {
 	channelName string
 }
 
-func New(channelName string, logger ports.Logger) (*rabbitmqBroker, error) {
+func New(channelName string, logger shared.Logger) (*rabbitmqBroker, error) {
 	user := os.Getenv("RABBITMQ_USER")
 	password := os.Getenv("RABBITMQ_PASSWORD")
 	port := os.Getenv("RABBITMQ_PORT")

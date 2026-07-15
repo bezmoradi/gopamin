@@ -2,7 +2,7 @@ package zap
 
 import (
 	"os"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -12,7 +12,7 @@ type logger struct {
 	logger *zap.SugaredLogger
 }
 
-func New(fileName ...string) ports.Logger {
+func New(fileName ...string) shared.Logger {
 	if len(fileName) > 0 {
 		config := zap.NewProductionEncoderConfig()
 		config.EncodeTime = zapcore.ISO8601TimeEncoder

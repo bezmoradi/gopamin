@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/domain"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/internal/core/shared"
 	"os"
 	"strconv"
 
@@ -17,10 +17,10 @@ const keyspace = "test_keyspace"
 
 type connection struct {
 	session *gocql.Session
-	logger  ports.Logger
+	logger  shared.Logger
 }
 
-func New(logger ports.Logger) (*connection, error) {
+func New(logger shared.Logger) (*connection, error) {
 	databaseHost := os.Getenv("CASSANDRA_HOST")
 	databasePort, err := strconv.Atoi(os.Getenv("CASSANDRA_PORT"))
 	if err != nil {

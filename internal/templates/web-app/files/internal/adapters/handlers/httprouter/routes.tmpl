@@ -1,7 +1,8 @@
 package httprouter
 
 import (
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
@@ -13,7 +14,7 @@ type router struct {
 	service      ports.UserServiceInterface
 }
 
-func NewRouter(service ports.UserServiceInterface) ports.RouterInterface {
+func NewRouter(service ports.UserServiceInterface) shared.RouterInterface {
 	return &router{
 		engine:       httprouter.New(),
 		globalPrefix: "/users",

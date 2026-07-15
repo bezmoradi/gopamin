@@ -3,7 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
-	"{{.Name}}/internal/core/ports"
+	"{{.Name}}/internal/core/shared"
 	"os"
 
 	"github.com/redis/go-redis/v9"
@@ -15,7 +15,7 @@ type redisBroker struct {
 	channel string
 }
 
-func New(channel string, logger ports.Logger) (*redisBroker, error) {
+func New(channel string, logger shared.Logger) (*redisBroker, error) {
 	host := os.Getenv("REDIS_HOST")
 	port := os.Getenv("REDIS_PORT")
 
