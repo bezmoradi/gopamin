@@ -40,12 +40,16 @@ cmd/
 {{- end}}
 internal/
   core/
-{{- if $hasDomain}}
-    domain/    # business entities ({{if $isWorker}}Message{{if $hasRealDB}}, User{{end}}{{else}}User{{end}}) — no external imports
-{{- end}}
-    ports/     # interfaces the core owns (implemented by adapters)
+    shared/    # cross-cutting contracts: logger{{if $hasHTTP}} + router{{end}} (used across aggregates)
 {{- if $hasRepo}}
-    services/  # use cases / business logic (depends only on ports)
+    user/      # the User aggregate — grouped by feature, layered within
+      domain/    # entities + invariants (no external imports)
+      ports/     # interfaces the aggregate owns (implemented by adapters)
+      services/  # use cases (depend only on ports)
+{{- end}}
+{{- if $isWorker}}
+    message/   # the Message aggregate — a second bounded context
+      domain/    # entities + invariants
 {{- end}}
   adapters/  # implement the ports; the only place third-party libs live
 {{- if $isRest}}
@@ -90,9 +94,11 @@ cmd  →  adapters  →  services  →  ports  ←  domain
 
 Inner layers must never import outer ones. Concretely:
 
-- `internal/core/domain/` — business entities and their invariants. **No** framework, database, or transport imports.
-- `internal/core/ports/` — interfaces that the core owns and the outside world implements.
-- `internal/core/services/` — use cases / business logic. Depend on **ports**, never on a concrete adapter.
+- The core is grouped **by aggregate** (e.g. `internal/core/user/`), each with its own layered sub-packages:
+  - `.../<aggregate>/domain/` — business entities and their invariants. **No** framework, database, or transport imports.
+  - `.../<aggregate>/ports/` — interfaces that aggregate owns and the outside world implements.
+  - `.../<aggregate>/services/` — use cases / business logic. Depend on **ports**, never on a concrete adapter.
+- `internal/core/shared/` — cross-cutting contracts (logger, router) used across aggregates.
 - `internal/adapters/` — the only place third-party libraries live: HTTP/GraphQL handlers, repositories, message brokers, and loggers that implement the ports.
 - `cmd/` — the composition root: it constructs concrete adapters, injects them into services, and starts the process.
 
@@ -248,10 +254,10 @@ make test-cover    # run tests and open an HTML coverage report
 
 ## Adding a feature
 
-1. Define or extend the interface in `internal/core/ports/`.
-2. Implement the use case in `internal/core/services/` (depending only on ports).
-3. Implement the adapter under the matching `internal/adapters/...` package.
-4. Wire the concrete adapter into the composition root in `cmd/main.go`.
+1. **New aggregate** (e.g. `order`): create `internal/core/order/{domain,ports,services}` as a **sibling** of `user/` — a self-contained bounded context. Do **not** grow `user/`. For a **new operation on an existing aggregate**, extend that aggregate's `ports` (the interface) and `services` (the logic).
+2. Implement the adapter under the matching `internal/adapters/...` package.
+3. Wire the concrete adapter into the composition root in `cmd/main.go`.
+4. If you added a new aggregate, mirror the `user-*` block in `.go-arch-lint.yml` (`order-domain` / `order-ports` / `order-services`) so `make arch` keeps enforcing the layering — deny-by-default fails the build on an unattached package until you do.
 {{if $isRest}}
 To add an endpoint: add the port method and service logic, then a handler in `internal/adapters/handlers/{{.Platform}}` and register its route. Return results through the `api.Response` envelope (errors under `error`, data under `data`).
 {{- else if $isGraphql}}
