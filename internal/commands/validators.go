@@ -59,6 +59,11 @@ func argsValidator() bool {
 		return false
 	}
 
+	if ci != "" && !ciValidator() {
+		fmt.Println(`The specified value for the -c flag is wrong. For more help, type "gopamin new -h"`)
+		return false
+	}
+
 	return true
 }
 
@@ -137,6 +142,15 @@ func databaseValidator() bool {
 func loggerValidator() bool {
 	switch logger {
 	case "log", "slog", "logrus", "zap":
+		return true
+	}
+
+	return false
+}
+
+func ciValidator() bool {
+	switch ci {
+	case "github", "gitlab":
 		return true
 	}
 

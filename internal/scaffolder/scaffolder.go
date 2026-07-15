@@ -28,9 +28,18 @@ type Project struct {
 	// templates so the Dockerfile's build image never drifts from the go.mod
 	// `go` directive.
 	GoVersion string
+	// CI is the optional CI platform ("github" or "gitlab", empty for none)
+	// selected with -c; it decides which pipeline file, if any, is emitted.
+	CI string
 }
 
-func New(projectType, platform, broker, name, database, logger string) {
+// ciRecipes maps a -c value to the template that renders its pipeline file.
+var ciRecipes = map[string]string{
+	"github": "github-ci",
+	"gitlab": "gitlab-ci",
+}
+
+func New(projectType, platform, broker, name, database, logger, ci string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
@@ -56,6 +65,7 @@ func New(projectType, platform, broker, name, database, logger string) {
 		ProjectType: projectType,
 		Logger:      logger,
 		GoVersion:   generatedGoVersion,
+		CI:          ci,
 	}
 
 	if err := generateProjectAgnosticFiles(&p); err != nil {
@@ -97,6 +107,9 @@ func generateProjectAgnosticFiles(p *Project) error {
 	fileGenerator([]string{"gitignore"}, p)
 	fileGenerator([]string{"license"}, p)
 	fileGenerator([]string{"agents"}, p)
+	if p.CI != "" {
+		fileGenerator([]string{ciRecipes[p.CI]}, p)
+	}
 
 	if err := initGit(p.Path); err != nil {
 		return err

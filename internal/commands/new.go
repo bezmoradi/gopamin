@@ -12,6 +12,7 @@ var (
 	name        string
 	projectType string
 	logger      string
+	ci          string
 )
 
 var newCmd = &cobra.Command{
@@ -31,7 +32,7 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
 	Short: "Create a new project",
 	Run: func(cmd *cobra.Command, args []string) {
 		if argsValidator() {
-			scaffolder.New(projectType, framework, broker, name, database, logger)
+			scaffolder.New(projectType, framework, broker, name, database, logger, ci)
 		}
 	},
 }
@@ -77,6 +78,11 @@ Available values for the "web-app" type are the same minus graphql.`)
  - slog
  - logrus
  - zap`)
+
+	newCmd.Flags().StringVarP(&ci, "ci", "c", "", `Optional CI pipeline to generate. Available values are:
+ - github (.github/workflows/ci.yml)
+ - gitlab (.gitlab-ci.yml)
+The pipeline runs build, test, "make lint", and "make arch-check".`)
 
 	rootCmd.AddCommand(newCmd)
 }

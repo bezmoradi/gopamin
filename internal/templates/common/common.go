@@ -153,6 +153,24 @@ func HealthHandlerTemplate() ([]byte, string) {
 	return healthHandler, "internal/adapters/handlers/health/health.go"
 }
 
+//go:embed files/github-ci.tmpl
+var githubCI []byte
+
+// GithubCITemplate renders a GitHub Actions workflow that builds, tests, and runs
+// `make lint` + `make arch-check`. Emitted only when -c github is selected.
+func GithubCITemplate() ([]byte, string) {
+	return githubCI, ".github/workflows/ci.yml"
+}
+
+//go:embed files/gitlab-ci.tmpl
+var gitlabCI []byte
+
+// GitlabCITemplate renders a GitLab CI pipeline equivalent to the GitHub one.
+// Emitted only when -c gitlab is selected.
+func GitlabCITemplate() ([]byte, string) {
+	return gitlabCI, ".gitlab-ci.yml"
+}
+
 //go:embed files/golangci.tmpl
 var golangci []byte
 

@@ -1,0 +1,13 @@
+stages:
+  - verify
+
+# The image tag tracks the pinned Go version (kept in lockstep with go.mod). The
+# Debian-based golang image ships make, which `make lint`/`make arch-check` need.
+verify:
+  stage: verify
+  image: golang:{{ .GoVersion }}
+  script:
+    - go build ./...
+    - go test ./...
+    - make lint
+    - make arch-check
