@@ -35,6 +35,10 @@ type Project struct {
 	// selected with -o; when set, templates emit the OTel adapter, the OTLP
 	// instrumentation wrap, the OTEL_* env block, and a collector in compose.
 	Observability string
+	// Auth is the optional authentication scheme ("jwt", empty for none) selected
+	// with -a (api only); when set, templates emit the auth adapter (bearer
+	// validation middleware + demo /login issuer) and a JWT_*/AUTH_* env block.
+	Auth string
 }
 
 // ciRecipes maps a -c value to the template that renders its pipeline file.
@@ -43,7 +47,7 @@ var ciRecipes = map[string]string{
 	"gitlab": "gitlab-ci",
 }
 
-func New(projectType, platform, broker, name, database, logger, ci, observability string) {
+func New(projectType, platform, broker, name, database, logger, ci, observability, auth string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
@@ -71,6 +75,7 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		GoVersion:     generatedGoVersion,
 		CI:            ci,
 		Observability: observability,
+		Auth:          auth,
 	}
 
 	if err := generateProjectAgnosticFiles(&p); err != nil {

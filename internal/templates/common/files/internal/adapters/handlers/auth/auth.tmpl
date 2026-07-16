@@ -1,0 +1,119 @@
+// Package auth is the JWT authentication adapter: a bearer-token validation
+// middleware (mounted in cmd/server so it protects every application route) and a
+// demo /login token issuer. It is the only package that imports the JWT library —
+// the core stays free of it; the authenticated subject travels in context.Context.
+package auth
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+// signingMethod is pinned so the verifier never trusts the token's own "alg"
+// header — this is what defeats the alg:none and RS256->HS256 confusion attacks.
+const signingMethod = "HS256"
+
+type ctxKey int
+
+const subjectKey ctxKey = 0
+
+// SubjectFrom returns the authenticated subject that Middleware injected, if any.
+// Handlers can use it to attribute a request to a caller without importing JWT.
+func SubjectFrom(ctx context.Context) (string, bool) {
+	subject, ok := ctx.Value(subjectKey).(string)
+	return subject, ok
+}
+
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	// Opaque on purpose: never reveal WHY (expired vs bad signature vs wrong issuer).
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+}
+
+// Middleware validates the "Authorization: Bearer <jwt>" header on every request,
+// injects the token subject into the request context, and returns 401 on any
+// failure. The algorithm is pinned via WithValidMethods (the sufficient fix); the
+// in-keyFunc method assertion is defense-in-depth.
+func Middleware(secret []byte, issuer string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !ok || raw == "" {
+				writeUnauthorized(w)
+				return
+			}
+
+			claims := &jwt.RegisteredClaims{}
+			_, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, jwt.ErrTokenSignatureInvalid
+				}
+				return secret, nil
+			},
+				jwt.WithValidMethods([]string{signingMethod}),
+				jwt.WithExpirationRequired(),
+				jwt.WithIssuer(issuer),
+			)
+			if err != nil {
+				writeUnauthorized(w)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), subjectKey, claims.Subject)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// LoginHandler issues a short-lived access token when the posted credentials match
+// the configured demo credentials. IMPORTANT: this validates against a single
+// env-configured user as a placeholder — replace it with a real user store and a
+// password hash (bcrypt/argon2) before production.
+func LoginHandler(secret []byte, ttl time.Duration, issuer, wantUser, wantPass string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeUnauthorized(w)
+			return
+		}
+
+		// Constant-time compares for password-timing hygiene.
+		userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(wantUser)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(wantPass)) == 1
+		if !userOK || !passOK {
+			writeUnauthorized(w)
+			return
+		}
+
+		now := time.Now()
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+			Subject:   body.Username,
+			Issuer:    issuer,
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		})
+		signed, err := token.SignedString(secret)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": signed})
+	}
+}

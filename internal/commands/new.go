@@ -14,6 +14,7 @@ var (
 	logger        string
 	ci            string
 	observability string
+	auth          string
 )
 
 var newCmd = &cobra.Command{
@@ -33,7 +34,7 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
 	Short: "Create a new project",
 	Run: func(cmd *cobra.Command, args []string) {
 		if argsValidator() {
-			scaffolder.New(projectType, framework, broker, name, database, logger, ci, observability)
+			scaffolder.New(projectType, framework, broker, name, database, logger, ci, observability, auth)
 		}
 	},
 }
@@ -89,6 +90,11 @@ The pipeline runs build, test, "make lint", and "make arch-check".`)
  - otel (OpenTelemetry: HTTP/runtime traces + metrics, OTLP export to a collector)
 It adds an "internal/adapters/observability" package, an OTEL_* block in .env, and a
 collector service in docker-compose.yml. Configure it via the standard OTEL_* env vars.`)
+
+	newCmd.Flags().StringVarP(&auth, "auth", "a", "", `Optional authentication to generate (for "api" projects only). Available values are:
+ - jwt (bearer-token JWT: a validation middleware protecting every app route, plus a
+   demo POST /login token issuer, using golang-jwt/v5 with HS256 + algorithm pinning)
+It adds an "internal/adapters/handlers/auth" package and a JWT_*/AUTH_* block in .env.`)
 
 	rootCmd.AddCommand(newCmd)
 }

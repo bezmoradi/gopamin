@@ -34,6 +34,8 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"observability":             common.ObservabilityTemplate,
 		"otel-collector":            common.OtelCollectorTemplate,
 		"otel-env":                  common.OtelEnvTemplate,
+		"auth":                      common.AuthTemplate,
+		"auth-env":                  common.AuthEnvTemplate,
 		"dockerfile":                common.DockerfileTemplate,
 		"dockerignore":              common.DockerignoreTemplate,
 		"gitignore":                 common.GitIgnoreTemplate,

@@ -9,6 +9,9 @@ import (
 	"syscall"
 	"time"
 
+{{- if .Auth}}
+	"{{.Name}}/internal/adapters/handlers/auth"
+{{- end}}
 	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/adapters/handlers/middleware"
 	"{{.Name}}/internal/core/shared"
@@ -44,6 +47,19 @@ func Serve(schema graphql.Schema, logger shared.Logger) {
 	}()
 {{- end}}
 
+{{- if .Auth}}
+	// Auth config, read here like PORT (no config threaded through main). The
+	// JWT_*/AUTH_* values live in .env.
+	authSecret := []byte(os.Getenv("JWT_SECRET"))
+	authIssuer := os.Getenv("JWT_ISSUER")
+	authTTL, err := time.ParseDuration(os.Getenv("JWT_TTL"))
+	if err != nil || authTTL <= 0 {
+		authTTL = 15 * time.Minute
+	}
+	authUser := os.Getenv("AUTH_USERNAME")
+	authPass := os.Getenv("AUTH_PASSWORD")
+{{- end}}
+
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
 		handler.New(&handler.Config{
@@ -55,10 +71,23 @@ func Serve(schema graphql.Schema, logger shared.Logger) {
 		middleware.Recover(logger),
 		middleware.RequestLogger(logger),
 		middleware.CORS,
+{{- if .Auth}}
+		auth.Middleware(authSecret, authIssuer),
+{{- end}}
 		middleware.Timeout(10*time.Second),
 	){{if .Observability}}, "http.server"){{end}})
 	mux.HandleFunc("/healthz", health.Live)
 	mux.HandleFunc("/readyz", health.Ready)
+{{- if .Auth}}
+	// Public token issuer on its own chain (CORS/Recover/RequestLogger). GraphQL
+	// clients send the token in Authorization; introspection needs a token too.
+	mux.Handle("/login", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
+		auth.LoginHandler(authSecret, authTTL, authIssuer, authUser, authPass),
+		middleware.Recover(logger),
+		middleware.RequestLogger(logger),
+		middleware.CORS,
+	){{if .Observability}}, "login"){{end}})
+{{- end}}
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),

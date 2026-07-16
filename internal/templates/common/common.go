@@ -60,6 +60,20 @@ func OtelEnvTemplate() ([]byte, string) {
 	return otelEnv, ".env"
 }
 
+//go:embed files/internal/adapters/handlers/auth/auth.tmpl
+var authAdapter []byte
+
+func AuthTemplate() ([]byte, string) {
+	return authAdapter, "internal/adapters/handlers/auth/auth.go"
+}
+
+//go:embed files/auth-env.tmpl
+var authEnv []byte
+
+func AuthEnvTemplate() ([]byte, string) {
+	return authEnv, ".env"
+}
+
 //go:embed files/migration-up.tmpl
 var migrationUp []byte
 

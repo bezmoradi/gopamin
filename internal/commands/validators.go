@@ -75,6 +75,17 @@ func argsValidator() bool {
 		}
 	}
 
+	if auth != "" {
+		if projectType != "api" {
+			fmt.Println(`The -a flag is only supported for projects of type "api"`)
+			return false
+		}
+		if !authValidator() {
+			fmt.Println(`The specified value for the -a flag is wrong. For more help, type "gopamin new -h"`)
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -171,6 +182,15 @@ func ciValidator() bool {
 func observabilityValidator() bool {
 	switch observability {
 	case "otel":
+		return true
+	}
+
+	return false
+}
+
+func authValidator() bool {
+	switch auth {
+	case "jwt":
 		return true
 	}
 

@@ -71,10 +71,14 @@ func buildAPI(p *Project) {
 	if hasObservability(p) {
 		env = append(env, "otel-env")
 	}
+	if hasAuth(p) {
+		env = append(env, "auth-env")
+	}
 
 	buildDatabase(p, database)
 	buildLogger(p)
 	buildObservability(p)
+	buildAuth(p)
 	if p.Broker != "" {
 		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
 		goGetPackages(p.Path, workerRecipes[p.Broker])

@@ -12,6 +12,7 @@
 {{- $containerized := or (ne .Broker "") (and (ne .Database "") (not (or (eq .Database "sqlite") (eq .Database "badgerdb")))) -}}
 {{- $isRelational := or (eq .Database "postgres") (or (eq .Database "mysql") (or (eq .Database "mariadb") (eq .Database "sqlite"))) -}}
 {{- $hasObservability := ne .Observability "" -}}
+{{- $hasAuth := ne .Auth "" -}}
 # AGENTS.md
 
 Guidance for AI coding agents (and humans) working in **{{.Name}}** — {{if eq .ProjectType "api"}}an{{else}}a{{end}} `{{.ProjectType}}` project scaffolded by [Gopamin](https://github.com/bezmoradi/gopamin) using the Clean Architecture (Ports & Adapters) pattern. This file follows the [AGENTS.md](https://agents.md) convention.
@@ -221,6 +222,20 @@ This project exports **traces and metrics** over OTLP/gRPC to a collector. The s
 {{- if $hasHTTP}}
 - **Route labels:** the HTTP wrap is framework-agnostic, so spans/metrics are **not** split per route (every endpoint reports route `/`). For per-endpoint RED metrics, add framework middleware (`otelecho`/`otelgin`/…).
 {{- end}}
+{{- end}}
+{{- if $hasAuth}}
+
+## Authentication (JWT)
+
+Every application route requires a bearer token; a demo `POST /login` issues one. The logic lives in `internal/adapters/handlers/auth` (the only package that imports the JWT library — the core stays free of it; the authenticated subject travels in `context.Context`, readable via `auth.SubjectFrom(ctx)`).
+
+- **Flow:** `POST /login` with `{"username","password"}` (the demo `AUTH_USERNAME`/`AUTH_PASSWORD` from `.env`) returns `{"token":"…"}`; send it as `Authorization: Bearer <token>` on every other route. Missing/invalid/expired → `401`.
+- **Config** is `JWT_*`/`AUTH_*` in `.env`, read in `cmd/server`. **HS256** with an env secret; the algorithm is **pinned** (`WithValidMethods`) so `alg:none` and RS256→HS256 confusion are rejected.
+- **All-or-nothing:** the auth middleware wraps the whole framework handler, so **every** app route is protected; the only public endpoints are `/healthz`, `/readyz`, and `/login`. For mixed public/protected app routes, add per-framework middleware (echo groups, chi sub-routers, …).
+{{- if $isGraphql}}
+- **GraphQL note:** `/graphql` is fully behind the bearer token — send it in `Authorization`. Introspection and the Playground therefore require a token too (disabling public introspection is a normal prod-hardening step); expose public queries via per-framework middleware if you need them.
+{{- end}}
+- **Productionize before shipping:** the loud `JWT_SECRET` placeholder must become a strong (≥32-byte) secret from a secret store, rotated; and the demo env-credential check in `LoginHandler` must be replaced with a **real user store + password hash** (bcrypt/argon2). Serve over TLS only (a bearer token is a password). Not yet included: refresh tokens, revocation, and role/scope authorization.
 {{- end}}
 {{- if $isWorker}}
 

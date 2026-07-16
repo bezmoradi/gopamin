@@ -23,6 +23,7 @@ type sampleProject struct {
 	GoVersion     string
 	CI            string
 	Observability string
+	Auth          string
 }
 
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell

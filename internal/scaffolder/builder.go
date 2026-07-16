@@ -56,6 +56,12 @@ func hasObservability(p *Project) bool {
 	return p.Observability == "otel"
 }
 
+// hasAuth reports whether the project ships the JWT auth stack (selected with
+// -a jwt). Only api is eligible; the validator rejects it for other types.
+func hasAuth(p *Project) bool {
+	return p.Auth == "jwt"
+}
+
 // hasCompose reports whether the project needs a docker-compose.yml + the docker-*
 // make targets: true for a containerized backend (database/broker) OR observability
 // (which contributes an otel-collector service).
@@ -85,6 +91,17 @@ func buildObservability(p *Project) {
 	fileGenerator([]string{"observability"}, p)
 	fileGenerator([]string{"otel-collector"}, p)
 	goGetPackages(p.Path, observabilityPackages)
+}
+
+// buildAuth emits the JWT auth adapter (bearer-validation middleware + demo /login
+// issuer) and fetches golang-jwt. The JWT_*/AUTH_* env block (auth-env) is handled
+// by the caller's env assembly.
+func buildAuth(p *Project) {
+	if !hasAuth(p) {
+		return
+	}
+	fileGenerator([]string{"auth"}, p)
+	goGetPackages(p.Path, []string{"github.com/golang-jwt/jwt/v5"})
 }
 
 // buildDatabase generates the user repository stack plus the chosen database's

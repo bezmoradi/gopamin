@@ -1,0 +1,10 @@
+# Auth (JWT) — read by cmd/server. Every application route requires a bearer token.
+# JWT_SECRET signs/verifies tokens (HS256). golang-jwt enforces no minimum length,
+# so use a strong secret (>= 32 random bytes) and rotate it from a secret store in
+# production. This placeholder is deliberately loud so it is never shipped as-is.
+JWT_SECRET=change-me-before-prod-use-a-32-byte-random-secret
+JWT_TTL=15m
+JWT_ISSUER={{.Name}}
+# Demo login credentials (POST /login) — placeholder for a real user store.
+AUTH_USERNAME=admin
+AUTH_PASSWORD=change-me
