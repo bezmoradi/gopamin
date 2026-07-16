@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"{{.Name}}/internal/core/message/domain"
 	"{{.Name}}/internal/core/message/ports"
@@ -16,7 +17,7 @@ func NewBrokerService(broker ports.MessageBrokerInterface) *brokerService {
 }
 
 func (service brokerService) Produce(message domain.Message) error {
-	byteSlice, err := message.ToJson()
+	byteSlice, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}

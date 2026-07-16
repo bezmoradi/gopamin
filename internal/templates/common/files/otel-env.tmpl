@@ -1,0 +1,7 @@
+# OpenTelemetry (read natively by the SDK/exporters — see internal/adapters/observability)
+OTEL_SERVICE_NAME={{.Name}}
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=development
+# Sampler: 100% in dev. Lower the ratio in production and/or do tail-sampling in the collector.
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG=1.0

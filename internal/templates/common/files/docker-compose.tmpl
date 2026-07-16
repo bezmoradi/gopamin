@@ -145,6 +145,16 @@ services:
       timeout: 5s
       retries: 5
 {{- end}}
+{{- if .Observability}}
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otel/config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+{{- end}}
 {{- if or (eq .Database "postgres") (eq .Database "mysql") (eq .Database "mariadb") (eq .Database "mongodb") (eq .Database "cassandra") (eq .Broker "redis")}}
 
 volumes:

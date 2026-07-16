@@ -6,13 +6,14 @@ import (
 )
 
 var (
-	database    string
-	framework   string
-	broker      string
-	name        string
-	projectType string
-	logger      string
-	ci          string
+	database      string
+	framework     string
+	broker        string
+	name          string
+	projectType   string
+	logger        string
+	ci            string
+	observability string
 )
 
 var newCmd = &cobra.Command{
@@ -32,7 +33,7 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
 	Short: "Create a new project",
 	Run: func(cmd *cobra.Command, args []string) {
 		if argsValidator() {
-			scaffolder.New(projectType, framework, broker, name, database, logger, ci)
+			scaffolder.New(projectType, framework, broker, name, database, logger, ci, observability)
 		}
 	},
 }
@@ -83,6 +84,11 @@ Available values for the "web-app" type are the same minus graphql.`)
  - github (.github/workflows/ci.yml)
  - gitlab (.gitlab-ci.yml)
 The pipeline runs build, test, "make lint", and "make arch-check".`)
+
+	newCmd.Flags().StringVarP(&observability, "observability", "o", "", `Optional observability stack to generate (for "api", "web-app", and "worker"). Available values are:
+ - otel (OpenTelemetry: HTTP/runtime traces + metrics, OTLP export to a collector)
+It adds an "internal/adapters/observability" package, an OTEL_* block in .env, and a
+collector service in docker-compose.yml. Configure it via the standard OTEL_* env vars.`)
 
 	rootCmd.AddCommand(newCmd)
 }

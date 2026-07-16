@@ -35,15 +35,22 @@ func buildWebApp(p *Project) {
 		env = append(env, database+"-env")
 	}
 
-	if hasContainerizedBackend(p) {
+	if hasCompose(p) {
 		makefile = append(makefile, "docker-makefile")
+	}
+	if isRelational(p.Database) {
+		makefile = append(makefile, "migrate-makefile")
 	}
 	if p.Broker != "" {
 		env = append(env, p.Broker+"-microservice-env")
 	}
+	if hasObservability(p) {
+		env = append(env, "otel-env")
+	}
 
 	buildDatabase(p, database)
 	buildLogger(p)
+	buildObservability(p)
 	if p.Broker != "" {
 		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
 		goGetPackages(p.Path, workerRecipes[p.Broker])
@@ -51,7 +58,7 @@ func buildWebApp(p *Project) {
 	fileGenerator(env, p)
 	fileGenerator(readme, p)
 	fileGenerator(makefile, p)
-	if hasContainerizedBackend(p) {
+	if hasCompose(p) {
 		fileGenerator([]string{"docker-compose"}, p)
 	}
 	fileGenerator([]string{"configs"}, p)

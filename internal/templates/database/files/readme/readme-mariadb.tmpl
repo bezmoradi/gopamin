@@ -23,3 +23,13 @@ In order to stop the container and at the same time remove the volume related to
 ```text
 $ make docker-down-rm-vol
 ```
+
+### Apply Database Migrations
+
+The database schema is managed by versioned migration files under `migrations/` (via [golang-migrate](https://github.com/golang-migrate/migrate)) rather than being created when the app boots. After the container is up and healthy, create the schema **before** running the app:
+
+```text
+$ make migrate-up
+```
+
+Roll back the most recent migration with `make migrate-down`, and scaffold a new pair with `make migrate-create name=<change>` (e.g. `make migrate-create name=add_email`).

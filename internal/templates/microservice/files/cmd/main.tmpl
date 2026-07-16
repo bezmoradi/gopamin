@@ -2,13 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os/signal"
+	"sync"
 	"syscall"
+{{- if .Observability}}
+	"time"
+{{- end}}
 
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
 	"{{.Name}}/internal/core/message/domain"
+{{- if .Observability}}
+	"{{.Name}}/internal/adapters/observability"
+
+	"go.opentelemetry.io/otel"
+{{- end}}
 )
 
 func init() {
@@ -27,8 +37,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+{{- if .Observability}}
+	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred flush
+	// runs after the consumer goroutine is joined below, so in-flight message spans
+	// are exported. Fail-open: a setup error is logged, not fatal.
+	otelShutdown, err := observability.Setup(context.Background())
+	if err != nil {
+		logger.Error("otel setup failed; continuing without telemetry", "error", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flushCtx)
+	}()
+	tracer := otel.Tracer("{{.Name}}")
+{{- end}}
+
 	// Producer side: publish a sample message.
-	sample, err := domain.Message{Data: "Hello World"}.ToJson()
+	sample, err := json.Marshal(domain.Message{Data: "Hello World"})
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -36,9 +62,17 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	// Consumer side: log every message received off the broker.
+	// Consumer side: log every message received off the broker. The WaitGroup lets
+	// main wait for in-flight processing to finish on shutdown before returning.
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		consumeErr := broker.Consume(ctx, func(value []byte) {
+{{- if .Observability}}
+			_, span := tracer.Start(ctx, "message.process")
+			defer span.End()
+{{- end}}
 			logger.Info("message received", "payload", string(value))
 		})
 		if consumeErr != nil && ctx.Err() == nil {
@@ -49,4 +83,5 @@ func main() {
 	logger.Info("worker is running; waiting for messages. Press Ctrl+C to stop.")
 	<-ctx.Done()
 	logger.Info("worker shutting down")
+	wg.Wait()
 }

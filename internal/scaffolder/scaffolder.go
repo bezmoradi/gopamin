@@ -31,6 +31,10 @@ type Project struct {
 	// CI is the optional CI platform ("github" or "gitlab", empty for none)
 	// selected with -c; it decides which pipeline file, if any, is emitted.
 	CI string
+	// Observability is the optional observability stack ("otel", empty for none)
+	// selected with -o; when set, templates emit the OTel adapter, the OTLP
+	// instrumentation wrap, the OTEL_* env block, and a collector in compose.
+	Observability string
 }
 
 // ciRecipes maps a -c value to the template that renders its pipeline file.
@@ -39,7 +43,7 @@ var ciRecipes = map[string]string{
 	"gitlab": "gitlab-ci",
 }
 
-func New(projectType, platform, broker, name, database, logger, ci string) {
+func New(projectType, platform, broker, name, database, logger, ci, observability string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
@@ -57,15 +61,16 @@ func New(projectType, platform, broker, name, database, logger, ci string) {
 	}
 
 	p := Project{
-		Database:    database,
-		Platform:    platform,
-		Broker:      broker,
-		Name:        moduleName,
-		Path:        projectPath,
-		ProjectType: projectType,
-		Logger:      logger,
-		GoVersion:   generatedGoVersion,
-		CI:          ci,
+		Database:      database,
+		Platform:      platform,
+		Broker:        broker,
+		Name:          moduleName,
+		Path:          projectPath,
+		ProjectType:   projectType,
+		Logger:        logger,
+		GoVersion:     generatedGoVersion,
+		CI:            ci,
+		Observability: observability,
 	}
 
 	if err := generateProjectAgnosticFiles(&p); err != nil {

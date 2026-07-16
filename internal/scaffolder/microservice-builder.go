@@ -15,6 +15,7 @@ func buildWorker(p *Project) {
 	packages := workerRecipes[broker]
 
 	buildLogger(p)
+	buildObservability(p)
 	readme := []string{"readme", p.Logger + "-readme", broker + "-microservice-readme"}
 	env := []string{"env", broker + "-microservice-env"}
 	if p.Database != "" {
@@ -22,10 +23,17 @@ func buildWorker(p *Project) {
 		readme = append(readme, p.Database+"-readme")
 		env = append(env, p.Database+"-env")
 	}
+	if hasObservability(p) {
+		env = append(env, "otel-env")
+	}
 
 	fileGenerator(readme, p)
 	fileGenerator(env, p)
-	fileGenerator([]string{"makefile", "docker-makefile"}, p)
+	makefile := []string{"makefile", "docker-makefile"}
+	if isRelational(p.Database) {
+		makefile = append(makefile, "migrate-makefile")
+	}
+	fileGenerator(makefile, p)
 	fileGenerator([]string{"docker-compose"}, p)
 	fileGenerator([]string{broker + "-microservice-broker"}, p)
 	fileGenerator([]string{"configs"}, p)

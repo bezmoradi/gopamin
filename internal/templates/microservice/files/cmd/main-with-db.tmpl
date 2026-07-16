@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os/signal"
+	"sync"
 	"syscall"
+{{- if .Observability}}
+	"time"
+{{- end}}
 
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
@@ -11,6 +16,11 @@ import (
 	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
 	"{{.Name}}/internal/core/message/domain"
 	"{{.Name}}/internal/core/user/services"
+{{- if .Observability}}
+	"{{.Name}}/internal/adapters/observability"
+
+	"go.opentelemetry.io/otel"
+{{- end}}
 )
 
 func init() {
@@ -35,8 +45,24 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+{{- if .Observability}}
+	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred flush
+	// runs after the consumer goroutine is joined below, so in-flight message spans
+	// are exported. Fail-open: a setup error is logged, not fatal.
+	otelShutdown, err := observability.Setup(context.Background())
+	if err != nil {
+		logger.Error("otel setup failed; continuing without telemetry", "error", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flushCtx)
+	}()
+	tracer := otel.Tracer("{{.Name}}")
+{{- end}}
+
 	// Producer side: publish a sample message.
-	sample, err := domain.Message{Data: "Hello World"}.ToJson()
+	sample, err := json.Marshal(domain.Message{Data: "Hello World"})
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -44,12 +70,24 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	// Consumer side: persist every received message via the user service.
+	// Consumer side: persist every received message via the user service. The
+	// WaitGroup lets main wait for in-flight processing to finish on shutdown.
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		consumeErr := broker.Consume(ctx, func(value []byte) {
+{{- if .Observability}}
+			msgCtx, span := tracer.Start(ctx, "message.process")
+			defer span.End()
+			if _, err := userService.Create(msgCtx, string(value)); err != nil {
+				logger.Error(err.Error())
+			}
+{{- else}}
 			if _, err := userService.Create(ctx, string(value)); err != nil {
 				logger.Error(err.Error())
 			}
+{{- end}}
 		})
 		if consumeErr != nil && ctx.Err() == nil {
 			logger.Fatal(consumeErr)
@@ -59,4 +97,5 @@ func main() {
 	logger.Info("worker is running; waiting for messages. Press Ctrl+C to stop.")
 	<-ctx.Done()
 	logger.Info("worker shutting down")
+	wg.Wait()
 }

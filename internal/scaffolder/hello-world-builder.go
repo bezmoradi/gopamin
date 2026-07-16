@@ -20,6 +20,9 @@ func buildHelloWorld(p *Project) {
 	if hasContainerizedBackend(p) {
 		makefile = append(makefile, "docker-makefile")
 	}
+	if isRelational(p.Database) {
+		makefile = append(makefile, "migrate-makefile")
+	}
 
 	buildLogger(p)
 	fileGenerator(env, p)

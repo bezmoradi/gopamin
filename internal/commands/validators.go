@@ -64,6 +64,17 @@ func argsValidator() bool {
 		return false
 	}
 
+	if observability != "" {
+		if projectType == "hello-world" {
+			fmt.Println(`The -o flag is not allowed for projects of type "hello-world"`)
+			return false
+		}
+		if !observabilityValidator() {
+			fmt.Println(`The specified value for the -o flag is wrong. For more help, type "gopamin new -h"`)
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -151,6 +162,15 @@ func loggerValidator() bool {
 func ciValidator() bool {
 	switch ci {
 	case "github", "gitlab":
+		return true
+	}
+
+	return false
+}
+
+func observabilityValidator() bool {
+	switch observability {
+	case "otel":
 		return true
 	}
 

@@ -13,14 +13,16 @@ import (
 // sampleProject mirrors the fields scaffolder.Project exposes to templates. It
 // is declared locally to avoid an import cycle with the scaffolder package.
 type sampleProject struct {
-	Name        string
-	Platform    string
-	Broker      string
-	Database    string
-	ProjectType string
-	Logger      string
-	Path        string
-	GoVersion   string
+	Name          string
+	Platform      string
+	Broker        string
+	Database      string
+	ProjectType   string
+	Logger        string
+	Path          string
+	GoVersion     string
+	CI            string
+	Observability string
 }
 
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell
@@ -138,6 +140,8 @@ func TestArchLintTemplateRendersValidConfig(t *testing.T) {
 		{ProjectType: "worker", Broker: "kafka"},                                      // no services/repositories
 		{ProjectType: "hello-world", Database: "sqlite"},                              // db-only core
 		{ProjectType: "hello-world"},                                                  // plain: no domain/services
+		{ProjectType: "api", Platform: "echo", Database: "postgres", Observability: "otel"}, // observability: component + cmd/cmd-server edges
+		{ProjectType: "worker", Broker: "kafka", Observability: "otel"},                     // observability on a worker (cmd edge, no cmd-server)
 	}
 
 	// Components present in every shape that emits the config. (The `shared` package —

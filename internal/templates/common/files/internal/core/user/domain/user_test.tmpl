@@ -1,39 +1,27 @@
 package domain
 
 import (
-	"errors"
+	"fmt"
 	"testing"
 )
 
-func TestUserToJson(t *testing.T) {
+func TestIsValidationError(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  User
-		result string
-		err    error
+		name string
+		err  error
+		want bool
 	}{
-		{
-			name:   "valid_input",
-			input:  User{Id: "1", Name: "John"},
-			result: `{"id":"1","name":"John"}`,
-			err:    nil,
-		},
-		{
-			name:   "input_with_empty_name",
-			input:  User{Id: "1"},
-			result: `{"id":"1"}`,
-			err:    nil,
-		},
+		{name: "name_required", err: ErrNameRequired, want: true},
+		{name: "name_too_long", err: ErrNameTooLong, want: true},
+		{name: "wrapped_validation", err: fmt.Errorf("create user: %w", ErrNameTooLong), want: true},
+		{name: "not_found_is_not_validation", err: ErrUserNotFound, want: false},
+		{name: "nil_is_not_validation", err: nil, want: false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := test.input.ToJson()
-			if err != nil && !errors.Is(err, test.err) {
-				t.Errorf("%s: expected error %v but got %v", test.name, test.err, err)
-			}
-			if result != test.result {
-				t.Errorf("%s: expected %v but got %v", test.name, test.result, result)
+			if got := IsValidationError(test.err); got != test.want {
+				t.Errorf("%s: IsValidationError(%v) = %v, want %v", test.name, test.err, got, test.want)
 			}
 		})
 	}

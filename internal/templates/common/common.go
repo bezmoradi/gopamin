@@ -29,6 +29,51 @@ func DockerMakefileTemplate() ([]byte, string) {
 	return dockerMakefile, "Makefile"
 }
 
+//go:embed files/migrate-makefile.tmpl
+var migrateMakefile []byte
+
+// MigrateMakefileTemplate renders the `migrate-*` make targets, appended to the
+// Makefile for a project with a relational database (postgres/mysql/mariadb/
+// sqlite). The DSN and driver build tag are selected per database.
+func MigrateMakefileTemplate() ([]byte, string) {
+	return migrateMakefile, "Makefile"
+}
+
+//go:embed files/internal/adapters/observability/otel.tmpl
+var observability []byte
+
+func ObservabilityTemplate() ([]byte, string) {
+	return observability, "internal/adapters/observability/otel.go"
+}
+
+//go:embed files/otel-collector.tmpl
+var otelCollector []byte
+
+func OtelCollectorTemplate() ([]byte, string) {
+	return otelCollector, "configs/otel-collector.yaml"
+}
+
+//go:embed files/otel-env.tmpl
+var otelEnv []byte
+
+func OtelEnvTemplate() ([]byte, string) {
+	return otelEnv, ".env"
+}
+
+//go:embed files/migration-up.tmpl
+var migrationUp []byte
+
+func MigrationUpTemplate() ([]byte, string) {
+	return migrationUp, "migrations/000001_create_users.up.sql"
+}
+
+//go:embed files/migration-down.tmpl
+var migrationDown []byte
+
+func MigrationDownTemplate() ([]byte, string) {
+	return migrationDown, "migrations/000001_create_users.down.sql"
+}
+
 //go:embed files/docker-compose.tmpl
 var dockerCompose []byte
 

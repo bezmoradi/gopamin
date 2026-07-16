@@ -72,6 +72,9 @@ components:
 {{- if $hasWeb}}
   web:          { in: internal/web }
 {{- end}}
+{{- if .Observability}}
+  observability: { in: internal/adapters/observability }
+{{- end}}
   configs:      { in: configs }
   tools:        { in: tools }
   cmd:          { in: cmd }
@@ -114,6 +117,10 @@ deps:
   configs:
     mayDependOn: [tools]
     anyVendorDeps: true          # godotenv
+{{- if .Observability}}
+  observability:
+    anyVendorDeps: true          # OpenTelemetry SDK + OTLP exporters (core stays pure)
+{{- end}}
 {{- if $hasWeb}}
   # web: embedded HTML/CSS assets (stdlib `embed` only). Depends on nothing — omitted.
 {{- end}}
@@ -122,10 +129,10 @@ deps:
   # COMPOSITION ROOT — the deliberate escape hatch, exactly one per project: cmd
   # constructs concrete adapters and injects them into services.
   cmd:
-    mayDependOn: [shared, loggers, configs, tools{{if $hasCore}}, user-domain, user-ports, user-services, repositories{{end}}{{if eq .ProjectType "worker"}}, message-domain{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
+    mayDependOn: [shared, loggers, configs, tools{{if $hasCore}}, user-domain, user-ports, user-services, repositories{{end}}{{if eq .ProjectType "worker"}}, message-domain{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}{{if .Observability}}, observability{{end}}]
     anyVendorDeps: true
 {{- if $hasHandlers}}
   cmd-server:
-    mayDependOn: [shared, user-domain, user-ports, user-services, repositories, loggers, configs, tools, handlers{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}]
+    mayDependOn: [shared, user-domain, user-ports, user-services, repositories, loggers, configs, tools, handlers{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}{{if .Observability}}, observability{{end}}]
     anyVendorDeps: true
 {{- end}}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"{{.Name}}/configs"
@@ -30,12 +31,12 @@ func fetch(us ports.UserServiceInterface, logger shared.Logger, id string) {
 		logger.Fatal(err)
 	}
 
-	json, err := user.ToJson()
+	data, err := json.Marshal(user)
 	if err != nil {
 		logger.Fatal(err)
 	}
 
-	logger.Info(json)
+	logger.Info(string(data))
 }
 
 func update(us ports.UserServiceInterface, logger shared.Logger, id string, newName string) {
@@ -61,11 +62,11 @@ func fetchAll(us ports.UserServiceInterface, logger shared.Logger) {
 	}
 
 	for _, user := range users {
-		json, err := user.ToJson()
+		data, err := json.Marshal(user)
 		if err != nil {
 			logger.Fatal(err)
 		}
-		logger.Info(json)
+		logger.Info(string(data))
 	}
 }
 

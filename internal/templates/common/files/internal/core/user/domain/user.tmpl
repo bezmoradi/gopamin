@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"encoding/json"
-	"errors"
-)
+import "errors"
 
 // MaxNameLength bounds a user's name so it can't overflow the datastore column;
 // kept in lockstep with the repositories' schema and enforced in the service, so
@@ -27,13 +24,4 @@ func IsValidationError(err error) bool {
 type User struct {
 	Id   string `json:"id"`
 	Name string `json:"name,omitempty"`
-}
-
-func (u User) ToJson() (string, error) {
-	byteSlice, err := json.Marshal(u)
-	if err != nil {
-		return "", err
-	}
-
-	return string(byteSlice), nil
 }

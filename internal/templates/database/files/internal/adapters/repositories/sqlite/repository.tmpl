@@ -34,25 +34,9 @@ func New(logger shared.Logger) (*connection, error) {
 		return nil, err
 	}
 
-	c := &connection{db: db, logger: logger}
-	if err := c.CreateTable(); err != nil {
-		return nil, err
-	}
-
-	return c, nil
-}
-
-func (c *connection) CreateTable() error {
-	_, err := c.db.Exec(
-		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %v (id INTEGER NOT NULL PRIMARY KEY, name TEXT)",
-			tableName,
-		),
-	)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	// Schema is owned by the versioned migrations in migrations/ (run `make
+	// migrate-up`), not created here — so the app never races on DDL at startup.
+	return &connection{db: db, logger: logger}, nil
 }
 
 func (c *connection) Insert(ctx context.Context, name string) (string, error) {

@@ -1,0 +1,89 @@
+// Package observability wires OpenTelemetry for the service: OTLP/gRPC export of
+// traces and metrics (HTTP + Go runtime) to a collector, W3C context propagation,
+// and a graceful flush. It is the ONLY package that imports the OTel SDK; the core
+// stays free of it (the active span rides in context.Context). Configure everything
+// through the standard OTEL_* environment variables — see .env.
+package observability
+
+import (
+	"context"
+	"errors"
+
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+)
+
+// serviceVersion is stamped onto every span/metric as the service.version resource
+// attribute. Bump it on release (there is no standard OTEL_* env var for it).
+const serviceVersion = "0.1.0"
+
+// noop is returned as the shutdown func on any setup failure so the caller's
+// deferred shutdown(ctx) never nil-panics — telemetry fails open, not the app.
+func noop(context.Context) error { return nil }
+
+// Setup initializes the global TracerProvider and MeterProvider from the OTEL_*
+// environment (endpoint, service.name, resource attributes, and the trace sampler
+// are all read natively by the SDK/exporters). It ALWAYS returns a non-nil shutdown
+// func; on error the returned shutdown is a no-op and the caller should log and
+// continue. Call the returned shutdown after draining traffic to flush buffers.
+func Setup(ctx context.Context) (func(context.Context) error, error) {
+	// Route SDK-internal errors (e.g. exporter failures while the collector is
+	// unreachable) somewhere quiet, so a down collector doesn't spam stderr every
+	// export interval. Fail-open must also mean fail-quiet.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {}))
+
+	// service.name and any extra attributes come from OTEL_SERVICE_NAME /
+	// OTEL_RESOURCE_ATTRIBUTES via WithFromEnv; service.version is stamped here.
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(attribute.String("service.version", serviceVersion)),
+	)
+	if err != nil {
+		return noop, err
+	}
+
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	traceExporter, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		return noop, err
+	}
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(traceExporter),
+		sdktrace.WithResource(res),
+		// No WithSampler: OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG drive it.
+	)
+	otel.SetTracerProvider(tracerProvider)
+
+	metricExporter, err := otlpmetricgrpc.New(ctx)
+	if err != nil {
+		return tracerProvider.Shutdown, err
+	}
+	meterProvider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
+		sdkmetric.WithResource(res),
+	)
+	otel.SetMeterProvider(meterProvider)
+
+	// Go runtime metrics (GC, goroutines, heap) via the global MeterProvider.
+	if err := runtime.Start(runtime.WithMeterProvider(meterProvider)); err != nil {
+		return func(ctx context.Context) error {
+			return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
+		}, err
+	}
+
+	return func(ctx context.Context) error {
+		return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
+	}, nil
+}

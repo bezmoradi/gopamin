@@ -12,6 +12,11 @@ import (
 	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/adapters/handlers/middleware"
 	"{{.Name}}/internal/core/shared"
+{{- if .Observability}}
+	"{{.Name}}/internal/adapters/observability"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+{{- end}}
 )
 
 func Serve(handlers shared.RouterInterface, logger shared.Logger) {
@@ -21,18 +26,33 @@ func Serve(handlers shared.RouterInterface, logger shared.Logger) {
 	}
 	logger.Info(fmt.Sprintf("The API is accessible at http://localhost:%s/api/v1/users", port))
 
+{{- if .Observability}}
+	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred
+	// shutdown is registered first so it runs LAST — after the server drains below —
+	// flushing buffered spans/metrics. Fail-open: a setup error is logged, not fatal.
+	otelShutdown, err := observability.Setup(context.Background())
+	if err != nil {
+		logger.Error("otel setup failed; continuing without telemetry", "error", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flushCtx)
+	}()
+{{- end}}
+
 	// Mount liveness/readiness at the transport layer so they work regardless of
 	// the HTTP framework, then delegate everything else to it.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health.Live)
 	mux.HandleFunc("/readyz", health.Ready)
-	mux.Handle("/", middleware.Chain(
+	mux.Handle("/", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
 		handlers.Register(),
 		middleware.Recover(logger),
 		middleware.RequestLogger(logger),
 		middleware.CORS,
 		middleware.Timeout(10*time.Second),
-	))
+	){{if .Observability}}, "http.server"){{end}})
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%v", port),

@@ -1,16 +1,5 @@
 package domain
 
-import "encoding/json"
-
 type Message struct {
 	Data string `json:"data"`
-}
-
-func (m Message) ToJson() ([]byte, error) {
-	byteSlice, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-
-	return byteSlice, nil
 }

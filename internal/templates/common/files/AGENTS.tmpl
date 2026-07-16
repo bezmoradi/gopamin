@@ -10,6 +10,8 @@
 {{- $hasBroker := ne .Broker "" -}}
 {{- $hasDomain := or (ne .ProjectType "hello-world") (ne .Database "") -}}
 {{- $containerized := or (ne .Broker "") (and (ne .Database "") (not (or (eq .Database "sqlite") (eq .Database "badgerdb")))) -}}
+{{- $isRelational := or (eq .Database "postgres") (or (eq .Database "mysql") (or (eq .Database "mariadb") (eq .Database "sqlite"))) -}}
+{{- $hasObservability := ne .Observability "" -}}
 # AGENTS.md
 
 Guidance for AI coding agents (and humans) working in **{{.Name}}** — {{if eq .ProjectType "api"}}an{{else}}a{{end}} `{{.ProjectType}}` project scaffolded by [Gopamin](https://github.com/bezmoradi/gopamin) using the Clean Architecture (Ports & Adapters) pattern. This file follows the [AGENTS.md](https://agents.md) convention.
@@ -205,6 +207,21 @@ Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kub
 
 Requests to the application handler pass through a framework-agnostic middleware chain composed in `cmd/server` (package `internal/adapters/handlers/middleware`): **recover** (a panic becomes a logged `500`, not a crash), **request logging** (method, path, status, duration), **CORS** (permissive by default — tighten `Access-Control-Allow-Origin` before production), and a **per-request timeout** (bounds the request `context` so a slow datastore call can't hang forever). The health endpoints are mounted outside the chain, so probes stay cheap and unlogged.
 {{- end}}
+{{- if $hasObservability}}
+
+## Observability (OpenTelemetry)
+
+This project exports **traces and metrics** over OTLP/gRPC to a collector. The setup lives in `internal/adapters/observability` — the only package that imports the OTel SDK. The core stays free of it (a span rides inside `context.Context`), and `make arch` enforces that.
+
+- **Instrumented:** {{if $hasHTTP}}inbound HTTP requests (one span each, via `otelhttp` at the transport wrap in `cmd/server`){{else}}each consumed message (a span in `cmd/main`){{end}}, plus **Go runtime metrics** (GC, goroutines, heap) and W3C trace-context propagation.
+- **Config is all `OTEL_*` env vars in `.env`** — endpoint, `OTEL_SERVICE_NAME`, resource attributes, and the trace sampler (`OTEL_TRACES_SAMPLER`/`_ARG`) are read natively by the SDK; no code override. Lower the sampler ratio in production and/or tail-sample in the collector.
+- **Local pipeline:** `make docker-up` starts an `otel-collector` (config `configs/otel-collector.yaml`) that logs received telemetry. Add a real backend (Jaeger, Tempo, Prometheus, a vendor) by extending that config — no app change.
+- **Fail-open:** if the collector is unreachable the app still starts and serves; export errors are silenced (`otel.SetErrorHandler`) so they don't flood logs. Buffered telemetry flushes on shutdown{{if $hasHTTP}}, after the HTTP server drains{{else}}, after the consumer goroutine is joined{{end}}.
+- **Adding instrumentation:** do it in **adapters** or `cmd`, never the core. Grab a tracer with `otel.Tracer("name")` and start a span from the request/message `context.Context`. A business-logic span belongs behind a port, not a direct SDK import in `services`.
+{{- if $hasHTTP}}
+- **Route labels:** the HTTP wrap is framework-agnostic, so spans/metrics are **not** split per route (every endpoint reports route `/`). For per-endpoint RED metrics, add framework middleware (`otelecho`/`otelgin`/…).
+{{- end}}
+{{- end}}
 {{- if $isWorker}}
 
 ## Broker workflow
@@ -226,15 +243,29 @@ This project needs its backing service running first.
 
 ```bash
 make docker-up     # start {{if $hasRealDB}}{{.Database}}{{end}}{{if and $hasRealDB $hasBroker}} + {{end}}{{if $hasBroker}}{{.Broker}}{{end}} in Docker (docker-compose.yml)
-make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
+{{if $isRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
+{{end}}make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
 make docker-down   # stop the backing service (add docker-down-rm-vol to wipe volumes)
 ```
 {{- else -}}
 ```bash
-make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
+{{if $isRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
+{{end}}make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
 ```
 {{- end}}
+{{if $isRelational}}
+## Database migrations
 
+The `{{.Database}}` schema is owned by versioned migration files in `migrations/` (applied with [golang-migrate](https://github.com/golang-migrate/migrate)), **not** created by the app at startup — so multiple instances never race on DDL, and schema changes are deliberate and reviewable.
+
+```bash
+make migrate-up                        # apply all pending migrations (run before first boot)
+make migrate-down                      # roll back the most recent migration
+make migrate-create name=add_email     # scaffold a new up/down pair under migrations/
+```
+
+The migrate CLI is pinned and run via `go run` (never added to `go.mod`), mirroring `make lint`/`make arch`. When you change the schema, add a migration pair rather than editing the repository constructor — the adapter assumes the table already exists.
+{{end}}
 ## Environment variables
 
 Configuration is loaded from `.env` at the project root (via `godotenv`). Real shell environment variables take precedence over `.env`, so you can override any key inline (e.g. `PORT=9000 make run`).

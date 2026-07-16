@@ -12,6 +12,11 @@ import (
 	"{{.Name}}/internal/adapters/handlers/health"
 	"{{.Name}}/internal/adapters/handlers/middleware"
 	"{{.Name}}/internal/core/shared"
+{{- if .Observability}}
+	"{{.Name}}/internal/adapters/observability"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+{{- end}}
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
@@ -24,8 +29,23 @@ func Serve(schema graphql.Schema, logger shared.Logger) {
 	}
 	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
 
+{{- if .Observability}}
+	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred
+	// shutdown is registered first so it runs LAST — after the server drains below —
+	// flushing buffered spans/metrics. Fail-open: a setup error is logged, not fatal.
+	otelShutdown, err := observability.Setup(context.Background())
+	if err != nil {
+		logger.Error("otel setup failed; continuing without telemetry", "error", err)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(flushCtx)
+	}()
+{{- end}}
+
 	mux := http.NewServeMux()
-	mux.Handle("/graphql", middleware.Chain(
+	mux.Handle("/graphql", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
 		handler.New(&handler.Config{
 			Schema:     &schema,
 			Pretty:     true,
@@ -36,7 +56,7 @@ func Serve(schema graphql.Schema, logger shared.Logger) {
 		middleware.RequestLogger(logger),
 		middleware.CORS,
 		middleware.Timeout(10*time.Second),
-	))
+	){{if .Observability}}, "http.server"){{end}})
 	mux.HandleFunc("/healthz", health.Live)
 	mux.HandleFunc("/readyz", health.Ready)
 
