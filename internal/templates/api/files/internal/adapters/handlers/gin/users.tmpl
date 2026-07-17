@@ -15,9 +15,12 @@ import (
 func (router *router) registerUserRoutes() {
 	r := router.engine.Group(router.globalPrefix + "/users")
 
-	r.GET("/", router.IndexHandler)
+	// Register the collection routes on the bare group path ("" not "/") so the
+	// resolved path is /api/v1/users with no trailing slash — matching the other
+	// frameworks (gin would otherwise serve /api/v1/users/ and 301-redirect).
+	r.GET("", router.IndexHandler)
 	r.GET("/:id", router.ShowUserHandler)
-	r.POST("/", router.CreateUserHandler)
+	r.POST("", router.CreateUserHandler)
 	r.PUT("/:id", router.UpdateUserHandler)
 	r.DELETE("/:id", router.DeleteUserHandler)
 }
@@ -62,13 +65,23 @@ func (router *router) DeleteUserHandler(c *gin.Context) {
 }
 
 func (router *router) IndexHandler(c *gin.Context) {
-	result, err := router.service.Index(c.Request.Context())
+	limit, cursor := api.PageParams(c.Request.URL.Query())
+
+	result, err := router.service.Index(c.Request.Context(), limit, cursor)
+	if errors.Is(err, domain.ErrInvalidCursor) {
+		c.JSON(http.StatusBadRequest, api.Response{Error: api.InvalidCursor})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
 		return
 	}
 
-	c.JSON(http.StatusOK, api.Response{Message: "Fetched users successfully", Data: result})
+	c.JSON(http.StatusOK, api.Response{
+		Message:    "Fetched users successfully",
+		Data:       api.NewUsers(result.Items),
+		NextCursor: result.NextCursor,
+	})
 }
 
 func (router *router) ShowUserHandler(c *gin.Context) {
@@ -82,7 +95,7 @@ func (router *router) ShowUserHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, api.Response{Message: "Fetched user successfully", Data: result})
+	c.JSON(http.StatusOK, api.Response{Message: "Fetched user successfully", Data: api.NewUser(result)})
 }
 
 func (router *router) UpdateUserHandler(c *gin.Context) {

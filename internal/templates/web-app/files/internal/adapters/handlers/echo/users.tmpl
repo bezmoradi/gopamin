@@ -1,10 +1,12 @@
 package echo
 
 import (
+	"errors"
 	"html/template"
 	"io/fs"
 	"net/http"
 
+	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/web"
 
 	"github.com/labstack/echo/v5"
@@ -44,7 +46,14 @@ func (router *router) DeleteUserHandler(c *echo.Context) error {
 }
 
 func (router *router) IndexHandler(c *echo.Context) error {
-	result, err := router.service.Index(c.Request().Context())
+	// Forward-only paging: the "Next" link carries an opaque ?cursor. limit 0
+	// lets the service apply its default page size.
+	cursor := c.Request().URL.Query().Get("cursor")
+
+	result, err := router.service.Index(c.Request().Context(), 0, cursor)
+	if errors.Is(err, domain.ErrInvalidCursor) {
+		return c.String(http.StatusBadRequest, "invalid pagination cursor")
+	}
 	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}

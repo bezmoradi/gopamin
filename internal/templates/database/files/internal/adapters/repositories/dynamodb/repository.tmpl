@@ -2,6 +2,8 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/user/domain"
@@ -203,29 +205,85 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return mapDynamodbToUser(user), nil
 }
 
-func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
+func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Self-defense: the service always clamps limit into [1, max]. Guard anyway —
+	// DynamoDB rejects a Scan Limit of 0, so a direct caller passing <= 0 would
+	// get a validation error instead of a page.
+	if limit < 1 {
+		limit = 1
+	}
 
 	input := &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
+		Limit:     aws.Int32(int32(limit)),
 	}
-
-	paginator := dynamodb.NewScanPaginator(c.db, input)
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
+	if cursor != "" {
+		startKey, err := decodeDynamoCursor(cursor)
 		if err != nil {
-			return nil, err
+			return domain.Page{}, err
 		}
-
-		for _, item := range page.Items {
-			var user dynamodbUser
-			err := attributevalue.UnmarshalMap(item, &user)
-			if err != nil {
-				return nil, err
-			}
-			users = append(users, mapDynamodbToUser(user))
-		}
+		input.ExclusiveStartKey = startKey
 	}
 
-	return users, nil
+	out, err := c.db.Scan(ctx, input)
+	if err != nil {
+		return domain.Page{}, err
+	}
+
+	var users []domain.User
+	for _, item := range out.Items {
+		var user dynamodbUser
+		if err := attributevalue.UnmarshalMap(item, &user); err != nil {
+			return domain.Page{}, err
+		}
+		users = append(users, mapDynamodbToUser(user))
+	}
+
+	// DynamoDB pages via LastEvaluatedKey, not an offset. A non-empty key means
+	// more rows remain. Note: Scan has no defined order, so this paginates a
+	// complete traversal rather than a sorted sequence.
+	page := domain.Page{Items: users}
+	if len(out.LastEvaluatedKey) > 0 {
+		next, err := encodeDynamoCursor(out.LastEvaluatedKey)
+		if err != nil {
+			return domain.Page{}, err
+		}
+		page.NextCursor = next
+	}
+
+	return page, nil
+}
+
+// encodeDynamoCursor serialises a LastEvaluatedKey into an opaque token. The key
+// is a map[string]types.AttributeValue whose members are a sealed interface, so
+// it can't be JSON-marshalled directly — we unmarshal it into a plain map first,
+// then base64 the JSON.
+func encodeDynamoCursor(key map[string]types.AttributeValue) (string, error) {
+	var plain map[string]any
+	if err := attributevalue.UnmarshalMap(key, &plain); err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(plain)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// decodeDynamoCursor reverses encodeDynamoCursor, rebuilding the attribute map
+// used as ExclusiveStartKey. A malformed token is a client error.
+func decodeDynamoCursor(cursor string) (map[string]types.AttributeValue, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return nil, domain.ErrInvalidCursor
+	}
+	var plain map[string]any
+	if err := json.Unmarshal(raw, &plain); err != nil {
+		return nil, domain.ErrInvalidCursor
+	}
+	key, err := attributevalue.MarshalMap(plain)
+	if err != nil {
+		return nil, domain.ErrInvalidCursor
+	}
+	return key, nil
 }

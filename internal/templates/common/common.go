@@ -329,6 +329,13 @@ func ApiResponseTemplate() ([]byte, string) {
 	return apiResponse, "internal/adapters/api/response.go"
 }
 
+//go:embed files/internal/adapters/api/user.tmpl
+var apiUser []byte
+
+func ApiUserTemplate() ([]byte, string) {
+	return apiUser, "internal/adapters/api/user.go"
+}
+
 //go:embed files/configs/configs.tmpl
 var configs []byte
 
@@ -348,27 +355,6 @@ var message []byte
 
 func MessageTemplate() ([]byte, string) {
 	return message, "internal/core/message/domain/message.go"
-}
-
-//go:embed files/internal/core/message/ports/broker-service.interface.tmpl
-var brokerServiceInterface []byte
-
-func BrokerServiceInterfaceTemplate() ([]byte, string) {
-	return brokerServiceInterface, "internal/core/message/ports/broker-service.interface.go"
-}
-
-//go:embed files/internal/core/message/ports/message-broker.interface.tmpl
-var messageBrokerInterface []byte
-
-func MessageBrokerInterfaceTemplate() ([]byte, string) {
-	return messageBrokerInterface, "internal/core/message/ports/message-broker.interface.go"
-}
-
-//go:embed files/internal/core/message/services/broker.service.tmpl
-var brokerService []byte
-
-func BrokerServiceTemplate() ([]byte, string) {
-	return brokerService, "internal/core/message/services/broker.service.go"
 }
 
 //go:embed files/tools/tools.tmpl

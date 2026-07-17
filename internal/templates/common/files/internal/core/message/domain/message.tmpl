@@ -1,5 +1,7 @@
 package domain
 
+// Message carries no serialization tags — wire formatting is a transport concern.
+// The composition root (cmd) maps this to a transport payload before publishing.
 type Message struct {
-	Data string `json:"data"`
+	Data string
 }

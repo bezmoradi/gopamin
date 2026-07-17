@@ -1,8 +1,0 @@
-package ports
-
-import "{{.Name}}/internal/core/message/domain"
-
-type BrokerServiceInterface interface {
-	Consume() error
-	Produce(message domain.Message) error
-}

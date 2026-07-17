@@ -53,8 +53,13 @@ func main() {
 	tracer := otel.Tracer("{{.Name}}")
 {{- end}}
 
-	// Producer side: publish a sample message.
-	sample, err := json.Marshal(domain.Message{Data: "Hello World"})
+	// Producer side: publish a sample message. The domain entity owns no wire
+	// format (that's a transport concern), so the composition root maps it to a
+	// transport payload before marshalling.
+	msg := domain.Message{Data: "Hello World"}
+	sample, err := json.Marshal(struct {
+		Data string `json:"data"`
+	}{Data: msg.Data})
 	if err != nil {
 		logger.Fatal(err)
 	}

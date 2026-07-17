@@ -17,6 +17,13 @@ func init() {
 	configs.LoadEnv()
 }
 
+// userPayload is this demo's JSON shape. The domain entity carries no wire-format
+// tags, so the composition root owns how a user is serialized for output.
+type userPayload struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func insert(us ports.UserServiceInterface, logger shared.Logger, value string) {
 	lastInsertID, err := us.Create(context.Background(), value)
 	if err != nil {
@@ -31,7 +38,7 @@ func fetch(us ports.UserServiceInterface, logger shared.Logger, id string) {
 		logger.Fatal(err)
 	}
 
-	data, err := json.Marshal(user)
+	data, err := json.Marshal(userPayload{Id: user.Id, Name: user.Name})
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -56,13 +63,15 @@ func deleteUser(us ports.UserServiceInterface, logger shared.Logger, id string) 
 }
 
 func fetchAll(us ports.UserServiceInterface, logger shared.Logger) {
-	users, err := us.Index(context.Background())
+	// This demo just prints the first page; pass page.NextCursor back as the
+	// third argument to walk subsequent pages.
+	page, err := us.Index(context.Background(), 0, "")
 	if err != nil {
 		logger.Fatal(err)
 	}
 
-	for _, user := range users {
-		data, err := json.Marshal(user)
+	for _, user := range page.Items {
+		data, err := json.Marshal(userPayload{Id: user.Id, Name: user.Name})
 		if err != nil {
 			logger.Fatal(err)
 		}

@@ -2,6 +2,7 @@ package badgerdb
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/shared"
@@ -64,18 +65,52 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return domain.User{Id: id, Name: string(value)}, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
+func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Self-defense: the service always clamps limit into [1, max], but a direct
+	// caller must not be able to make this method panic on page.Items[limit-1].
+	if limit < 1 {
+		limit = 1
+	}
+
+	// Badger iterates keys in sorted order. The cursor is the last key of the
+	// previous page, base64-encoded.
+	var afterKey []byte
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		afterKey = decoded
+	}
+
+	page := domain.Page{}
 	err := c.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchSize = 10
 		it := txn.NewIterator(opts)
 		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
+
+		// Seek is inclusive (>=), so to resume strictly after the cursor key we
+		// seek to cursor+0x00. With no cursor we start from the first key.
+		if afterKey == nil {
+			it.Rewind()
+		} else {
+			it.Seek(append(afterKey, 0x00))
+		}
+
+		for ; it.Valid(); it.Next() {
+			// The page is full and at least one more row exists, so the last
+			// returned key is a valid continuation point (we resume strictly
+			// after it, matching the keyset semantics of the SQL adapters).
+			if len(page.Items) == limit {
+				page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+				break
+			}
+
 			item := it.Item()
-			k := item.Key()
+			k := item.KeyCopy(nil)
 			err := item.Value(func(v []byte) error {
-				users = append(users, domain.User{Id: string(k), Name: string(v)})
+				page.Items = append(page.Items, domain.User{Id: string(k), Name: string(v)})
 				return nil
 			})
 			if err != nil {
@@ -85,9 +120,10 @@ func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return domain.Page{}, err
 	}
-	return users, nil
+
+	return page, nil
 }
 
 func (c *connection) Insert(ctx context.Context, name string) (string, error) {

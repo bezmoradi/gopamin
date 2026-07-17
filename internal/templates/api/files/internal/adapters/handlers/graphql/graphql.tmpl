@@ -23,6 +23,22 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 		},
 	)
 
+	// GraphQL is statically typed, so a paginated list can't reuse the bare
+	// [User] type — it needs an explicit page shape carrying the opaque cursor.
+	userPageType := graphql.NewObject(
+		graphql.ObjectConfig{
+			Name: "UserPage",
+			Fields: graphql.Fields{
+				"items": &graphql.Field{
+					Type: graphql.NewList(userType),
+				},
+				"next_cursor": &graphql.Field{
+					Type: graphql.String,
+				},
+			},
+		},
+	)
+
 	queryType := graphql.NewObject(
 		graphql.ObjectConfig{
 			Name: "Query",
@@ -44,10 +60,29 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					},
 				},
 				"users": &graphql.Field{
-					Type:        graphql.NewList(userType),
-					Description: "Get user list",
+					Type:        userPageType,
+					Description: "Get a page of users; pass cursor from a previous page to continue",
+					Args: graphql.FieldConfigArgument{
+						"limit": &graphql.ArgumentConfig{
+							Type: graphql.Int,
+						},
+						"cursor": &graphql.ArgumentConfig{
+							Type: graphql.String,
+						},
+					},
 					Resolve: func(params graphql.ResolveParams) (interface{}, error) {
-						return service.Index(params.Context)
+						limit, _ := params.Args["limit"].(int)
+						cursor, _ := params.Args["cursor"].(string)
+
+						page, err := service.Index(params.Context, limit, cursor)
+						if err != nil {
+							return nil, err
+						}
+
+						return map[string]interface{}{
+							"items":       page.Items,
+							"next_cursor": page.NextCursor,
+						}, nil
 					},
 				},
 			},

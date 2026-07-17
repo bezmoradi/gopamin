@@ -20,7 +20,7 @@ func restAPIRecipe(routes, users string, packages []string) apiRecipe {
 		mainWithDB:   "api-main-with-db",
 		readmeNoDB:   "api-readme",
 		readmeWithDB: "api-readme-with-db",
-		files:        []string{"api-server", routes, users, "api-errors", "api-response", "router-interface"},
+		files:        []string{"api-server", routes, users, "api-errors", "api-response", "api-user", "router-interface"},
 		packages:     packages,
 	}
 }

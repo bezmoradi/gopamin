@@ -3,6 +3,7 @@ package mariadb
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/user/domain"
@@ -141,27 +142,60 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return user, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
+func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Self-defense: the service always clamps limit into [1, max], but a direct
+	// caller must not be able to make this method panic on page.Items[limit-1].
+	if limit < 1 {
+		limit = 1
+	}
+
+	// Keyset pagination: the cursor is the last id from the previous page,
+	// base64-encoded. Ordering by the integer primary key gives a stable,
+	// gap-free walk; id > 0 selects everything for the first (cursor-less) page.
+	afterId := 0
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		afterId, err = strconv.Atoi(string(decoded))
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+	}
+
+	// Fetch one extra row to learn whether a further page exists.
 	rows, err := c.db.QueryContext(
 		ctx,
 		fmt.Sprintf(
-			"SELECT id, name FROM %s",
+			"SELECT id, name FROM %s WHERE id > ? ORDER BY id ASC LIMIT ?",
 			tableName,
 		),
+		afterId,
+		limit+1,
 	)
 	if err != nil {
-		return nil, err
+		return domain.Page{}, err
 	}
 	defer func() { _ = rows.Close() }()
 
+	var users []domain.User
 	for rows.Next() {
 		var user domain.User
 		if err := rows.Scan(&user.Id, &user.Name); err != nil {
-			return nil, err
+			return domain.Page{}, err
 		}
 		users = append(users, user)
 	}
+	if err := rows.Err(); err != nil {
+		return domain.Page{}, err
+	}
 
-	return users, nil
+	page := domain.Page{Items: users}
+	if len(users) > limit {
+		page.Items = users[:limit]
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+	}
+
+	return page, nil
 }

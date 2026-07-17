@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/user/domain"
@@ -144,25 +145,60 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return mapMongodbToUser(user), nil
 }
 
-func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
-	cursor, err := c.GetCollection().Find(ctx, bson.D{})
-	if err != nil {
-		return nil, err
+func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Self-defense: the service always clamps limit into [1, max], but a direct
+	// caller must not be able to make this method panic on page.Items[limit-1].
+	if limit < 1 {
+		limit = 1
 	}
-	defer func() { _ = cursor.Close(ctx) }()
 
-	for cursor.Next(ctx) {
+	// Keyset pagination on _id: an ObjectID embeds a creation timestamp, so
+	// ascending _id order is roughly chronological and stable. The cursor is the
+	// last _id (hex) from the previous page, base64-encoded.
+	filter := bson.M{}
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		afterId, err := bson.ObjectIDFromHex(string(decoded))
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		after := bson.M{"$gt": afterId}
+		filter = bson.M{"_id": after}
+	}
+
+	// Fetch one extra document to learn whether a further page exists.
+	sort := bson.M{"_id": 1}
+	opts := options.Find().
+		SetSort(sort).
+		SetLimit(int64(limit) + 1)
+
+	mongoCursor, err := c.GetCollection().Find(ctx, filter, opts)
+	if err != nil {
+		return domain.Page{}, err
+	}
+	defer func() { _ = mongoCursor.Close(ctx) }()
+
+	var users []domain.User
+	for mongoCursor.Next(ctx) {
 		var user mongodbUser
-		if err := cursor.Decode(&user); err != nil {
-			return nil, err
+		if err := mongoCursor.Decode(&user); err != nil {
+			return domain.Page{}, err
 		}
 		users = append(users, mapMongodbToUser(user))
 	}
 
-	if err := cursor.Err(); err != nil {
-		return nil, err
+	if err := mongoCursor.Err(); err != nil {
+		return domain.Page{}, err
 	}
 
-	return users, nil
+	page := domain.Page{Items: users}
+	if len(users) > limit {
+		page.Items = users[:limit]
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+	}
+
+	return page, nil
 }

@@ -98,7 +98,7 @@ cmd  →  adapters  →  services  →  ports  ←  domain
 Inner layers must never import outer ones. Concretely:
 
 - The core is grouped **by aggregate** (e.g. `internal/core/user/`), each with its own layered sub-packages:
-  - `.../<aggregate>/domain/` — business entities and their invariants. **No** framework, database, or transport imports.
+  - `.../<aggregate>/domain/` — business entities and their invariants. **No** framework, database, or transport imports, and **no serialization tags** (`json:"..."`): wire formatting is a transport concern. The adapters own the wire shape — {{if $isRest}}the REST layer maps entities to DTOs in `internal/adapters/api` (e.g. `api.User`, mapped via `api.NewUser`){{else if $isGraphql}}GraphQL resolves entities through its own schema types{{else if $isWeb}}the web view uses `html/template` field access{{else}}the composition root maps entities to a transport payload before marshalling{{end}}.
   - `.../<aggregate>/ports/` — interfaces that aggregate owns and the outside world implements.
   - `.../<aggregate>/services/` — use cases / business logic. Depend on **ports**, never on a concrete adapter.
 - `internal/core/shared/` — cross-cutting contracts (logger, router) used across aggregates.
@@ -138,20 +138,28 @@ Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "da
 
 | Method | Path | Purpose | Success |
 |---|---|---|---|
-| `GET` | `/api/v1/users` | list users | `200` |
+| `GET` | `/api/v1/users?limit=&cursor=` | list users (paginated) | `200` |
 | `GET` | `/api/v1/users/:id` | fetch one | `200` |
 | `POST` | `/api/v1/users` | create — body `{"name":"..."}` | `201` |
 | `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}` | `200` |
 | `DELETE` | `/api/v1/users/:id` | delete | `200` |
 
-Status codes: `200`/`201` success · `400` malformed JSON body · `404` not found · `422` validation (e.g. empty name) · `500` datastore failure. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
+Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `422` validation (e.g. empty name) · `500` datastore failure. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
+
+**Pagination.** The list endpoint is cursor-paginated so a single request can never trigger an unbounded scan. `?limit=N` bounds the page (default `20`, capped at `100`, both in `domain`); when more rows remain the envelope carries a `next_cursor`, which the client passes back verbatim as `?cursor=…` to fetch the next page. The cursor is **opaque** (URL-safe base64, `base64.RawURLEncoding`) — its contents are a private detail of the repository (a keyset id, a driver paging token, …), so never parse or construct one client-side. A malformed cursor is `400 {"error":"Invalid pagination cursor"}`. There is no offset paging: two of the supported stores (Apache Cassandra, DynamoDB) have no offset at all, so the cursor model is the only one that spans every datastore.
+
+Two things to know when writing a `while next_cursor != ""` client:
+- **Cassandra and DynamoDB may return a non-empty `next_cursor` whose next fetch is empty** — their drivers can hand back a trailing continuation token past the last row. The keyset stores (relational, Mongo, Badger) don't; they stop cleanly. A correct client keeps paging until `next_cursor` is absent (one harmless extra round-trip on those two stores).
+- **Cursors are not signed, and don't need to be** — for the SQL/Dynamo stores a cursor is just the last row's id (already in the response, so it grants no new capability). The property that actually matters is that the list query is **authorization-scoped** (e.g. filtered to the caller's tenant — see the auth section if present): a cursor must never let a client page across data it couldn't already list. Scope the query, not the cursor.
 
 ```bash
-# create, then list (server on :8080 by default — see PORT)
+# create, then page (server on :8080 by default — see PORT)
 curl -s -XPOST localhost:8080/api/v1/users -H 'Content-Type: application/json' -d '{"name":"alice"}'
 #   -> 201 {"message":"Created user successfully","data":"<id>"}
-curl -s localhost:8080/api/v1/users
-#   -> 200 {"message":"Fetched users successfully","data":[{"id":"<id>","name":"alice"}]}
+curl -s 'localhost:8080/api/v1/users?limit=2'
+#   -> 200 {"message":"Fetched users successfully","data":[...2 users...],"next_cursor":"<opaque>"}
+curl -s 'localhost:8080/api/v1/users?limit=2&cursor=<opaque>'
+#   -> 200 the next page; when "next_cursor" is absent you have reached the end
 curl -s localhost:8080/api/v1/users/does-not-exist
 #   -> 404 {"error":"Not found"}
 ```
@@ -163,16 +171,19 @@ curl -s localhost:8080/api/v1/users/does-not-exist
 Single endpoint: `POST /graphql` (GraphiQL is disabled). Schema and resolvers live in `internal/adapters/handlers/graphql`.
 
 - Type `User { id: String, name: String }`
-- Queries: `user(id: String): User` · `users: [User]`
+- Type `UserPage { items: [User], next_cursor: String }`
+- Queries: `user(id: String): User` · `users(limit: Int, cursor: String): UserPage`
 - Mutations: `create(name: String!): String` · `update(id: String!, name: String): String` · `delete(id: String!): String`
+
+`users` is cursor-paginated exactly like the REST list (opaque `next_cursor`, default limit `20`, cap `100`); pass a previous page's `next_cursor` as the `cursor` argument to continue.
 
 ```bash
 # create (server on :8080 by default — see PORT)
 curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
   -d '{"query":"mutation { create(name: \"alice\") }"}'
-# query
+# query a page
 curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
-  -d '{"query":"{ users { id name } }"}'
+  -d '{"query":"{ users(limit: 2) { items { id name } next_cursor } }"}'
 ```
 {{- end}}
 {{- if $isWeb}}
@@ -188,6 +199,8 @@ Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/ada
 | `POST` | `/users` | create (form submit) |
 | `PUT` | `/users/:id` | update |
 | `DELETE` | `/users/:id` | delete |
+
+The list page is **forward-only paginated**: when more rows remain it renders a `Next →` link carrying an opaque `?cursor=…` (default page size `20`). This is a deliberately minimal browse UX — there is no "Previous" (backward cursors are out of scope). A hand-edited, malformed `?cursor` surfaces as a `500`; the generated `Next` links always carry a valid cursor.
 
 Static assets are served from `/assets/*`. HTML templates and CSS live in `internal/web` and are **embedded into the binary** via `//go:embed`, so the compiled binary is self-contained (no runtime file dependencies). The server listens on `:8080` by default (see `PORT`).
 {{- end}}

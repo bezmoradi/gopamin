@@ -31,85 +31,66 @@ In the Kafka CLI, consume message from a topic using the following command. For 
 $ kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic testing
 ```
 
-The `main` function is the entry point of our app:
+The generated worker is a single long-running process. Its `main` opens the broker, publishes one sample message on startup, and then consumes every message on the topic until you stop it with Ctrl+C:
 
 ```go
-func main() {
-	broker := kafka.New("testing")
-	service := services.NewBrokerService(broker)
-	service.Produce(domain.Message{Data: "Hello World"})
-
-	// service.Consume()
+broker, err := kafka.New("testing", logger)
+if err != nil {
+	logger.Fatal(err)
 }
+defer func() { _ = broker.Close() }()
+
+// Publish a sample message. The domain entity carries no wire-format tags, so
+// the composition root maps it to a transport payload before marshalling.
+sample, _ := json.Marshal(struct {
+	Data string `json:"data"`
+}{Data: "Hello World"})
+_ = broker.Produce(ctx, sample)
+
+// Consume every message until the process is stopped.
+go broker.Consume(ctx, func(value []byte) {
+	logger.Info("message received", "payload", string(value))
+})
 ```
 
-As shown above, we have used the same name (`testing`) for our topic that we used along with the previous command in the Kafka CLI. The responsibility of the `service.Produce` is to produce a new message of type `domain.Message` to Kafka; so by running the `make run` command inside the project folder, a new message will be published to the Kafka topic as follows:
+We use the same topic name (`testing`) as the CLI consumer above. Running `make run` publishes `{"data":"Hello World"}` to the topic and then keeps running, logging any further messages:
 
 ```text
 {"data":"Hello World"}
 ```
 
-## Consume Messages from A Topic
+## Send More Messages
 
-As shown above, the `service.Consume()` line is commented out; in order to turn our app into a consumer, we need to change the `main` function as follows:
-
-```go
-func main() {
-	broker := kafka.New("testing")
-	service := services.NewBrokerService(broker)
-	// service.Produce(domain.Message{Data: "Hello World"})
-
-	service.Consume()
-}
-```
-
-Now we need to run the `make run` command inside the project folder; this time around the app does no exit because it needs to wait for incoming messages.  
-As the next step, we need to go to the Kafka CLI and run the following command:
+The worker already consumes the topic, so to send more messages, open the Kafka CLI producer:
 
 ```text
 $ kafka-console-producer.sh --bootstrap-server localhost:9092 --topic testing
 ```
 
-Then we enter a message such as:
+Then enter a message such as:
 
 ```text
 >Hello World
 ```
 
-By hitting enter then referring to the terminal window that the app is running in, we will see:
+Hitting enter, the terminal window running the worker logs the payload:
 
 ```text
-$ make run
-Hello World
+message received payload=Hello World
 ```
 
-## How to Create Producer And Consumer Apps?
+## Producer-Only and Consumer-Only Workers
 
-As another approach, instead of using the Kafka CLI in order to consume a topic or produce messages in a topic, we can create two stand-alone apps and use them as a producer and consumer respectively. To start, let's create a Kafka worker called `proeducer` using the following command:
+To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure producer, or delete the `broker.Produce(...)` call for a pure consumer. You can also scaffold two separate workers:
 
 ```text
 $ gopamin new -n producer -t worker -b kafka
-```
-
-Then create the second one named `consumer` as follows:
-
-```text
 $ gopamin new -n consumer -t worker -b kafka
 ```
 
-We do not need to change the `producer` app at all; the `consumer` though needs to get modified as follows:
-
-```go
-func main() {
-	broker := kafka.New("testing")
-	service := services.NewBrokerService(broker)
-	service.Consume()
-}
-```
-
-As the final step, we need to open up two different terminal windows and cd into those projects then run the `make run` command for the `consumer` and `producer` respectively; inside the terminal window having to do with the `consumer` app you will see:
+Edit each to keep just its half, then run both with `make run` (start the consumer first so it doesn't miss the producer's message). The consumer logs each payload it receives:
 
 ```text
 $ make run
-{"data":"Hello World"}
+message received payload={"data":"Hello World"}
 ```

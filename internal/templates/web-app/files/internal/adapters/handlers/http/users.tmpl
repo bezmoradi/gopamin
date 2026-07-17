@@ -1,11 +1,13 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
 
+	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/web"
 )
 
@@ -51,7 +53,15 @@ func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Index(r.Context())
+	// Forward-only paging: the "Next" link carries an opaque ?cursor. limit 0
+	// lets the service apply its default page size.
+	cursor := r.URL.Query().Get("cursor")
+
+	result, err := router.service.Index(r.Context(), 0, cursor)
+	if errors.Is(err, domain.ErrInvalidCursor) {
+		http.Error(w, "invalid pagination cursor", http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

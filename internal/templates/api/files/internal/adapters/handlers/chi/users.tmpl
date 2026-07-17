@@ -73,14 +73,25 @@ func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	result, err := router.service.Index(r.Context())
+	limit, cursor := api.PageParams(r.URL.Query())
+
+	result, err := router.service.Index(r.Context(), limit, cursor)
+	if errors.Is(err, domain.ErrInvalidCursor) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(api.Response{Error: api.InvalidCursor})
+		return
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(api.Response{Message: "Fetched users successfully", Data: result})
+	_ = json.NewEncoder(w).Encode(api.Response{
+		Message:    "Fetched users successfully",
+		Data:       api.NewUsers(result.Items),
+		NextCursor: result.NextCursor,
+	})
 }
 
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +109,7 @@ func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(api.Response{Message: "Fetched user successfully", Data: result})
+	_ = json.NewEncoder(w).Encode(api.Response{Message: "Fetched user successfully", Data: api.NewUser(result)})
 }
 
 func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {

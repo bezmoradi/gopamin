@@ -2,6 +2,7 @@ package cassandra
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"{{.Name}}/internal/core/user/domain"
@@ -163,27 +164,50 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return user, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context) ([]domain.User, error) {
-	var users []domain.User
-	scanner := c.session.Query(
+func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Self-defense: the service always clamps limit into [1, max]. Guard anyway —
+	// gocql's PageSize(n) *disables* paging when n <= 0, which would reintroduce
+	// the unbounded scan this feature exists to prevent.
+	if limit < 1 {
+		limit = 1
+	}
+
+	// Apache Cassandra has no OFFSET (CASSANDRA-6511, Won't Fix); it pages
+	// natively via an opaque driver "paging state". The cursor is that state,
+	// base64-encoded. We therefore drop the auto-paging Scanner() and drive the
+	// iterator a single page at a time with PageSize + PageState.
+	var pageState []byte
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		pageState = decoded
+	}
+
+	iter := c.session.Query(
 		fmt.Sprintf(
 			"SELECT id, name FROM %s",
 			tableName,
 		),
-	).IterContext(ctx).Scanner()
+	).PageSize(limit).PageState(pageState).IterContext(ctx)
 
-	for scanner.Next() {
-		var user domain.User
-		err := scanner.Scan(&user.Id, &user.Name)
-		if err != nil {
-			return nil, err
-		}
+	var users []domain.User
+	var user domain.User
+	for iter.Scan(&user.Id, &user.Name) {
 		users = append(users, user)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return []domain.User{}, err
+	// PageState() must be read before Close(); an empty state means no more rows.
+	nextPageState := iter.PageState()
+	if err := iter.Close(); err != nil {
+		return domain.Page{}, err
 	}
 
-	return users, nil
+	page := domain.Page{Items: users}
+	if len(nextPageState) > 0 {
+		page.NextCursor = base64.RawURLEncoding.EncodeToString(nextPageState)
+	}
+
+	return page, nil
 }

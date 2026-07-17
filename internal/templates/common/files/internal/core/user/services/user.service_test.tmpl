@@ -143,38 +143,38 @@ func TestIndex(t *testing.T) {
 	us := NewUserService(&mockRepository)
 
 	t.Run("should return users", func(t *testing.T) {
-		expectedResult := []domain.User{
+		expectedResult := domain.Page{Items: []domain.User{
 			{Id: "1", Name: "John"},
 			{Id: "2", Name: "Jane"},
-		}
+		}}
 
-		mockRepository.SpyOnFetchAll = func(ctx context.Context) ([]domain.User, error) {
+		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 			return expectedResult, nil
 		}
 
-		result, _ := us.Index(ctx)
+		result, _ := us.Index(ctx, 0, "")
 		if !reflect.DeepEqual(result, expectedResult) {
 			t.Errorf("should return users but returned %v", result)
 		}
 	})
 
 	t.Run("should return an empty list", func(t *testing.T) {
-		mockRepository.SpyOnFetchAll = func(ctx context.Context) ([]domain.User, error) {
-			return []domain.User{}, nil
+		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+			return domain.Page{}, nil
 		}
 
-		result, _ := us.Index(ctx)
-		if len(result) != 0 {
-			t.Errorf("should return 0 but received %v", len(result))
+		result, _ := us.Index(ctx, 0, "")
+		if len(result.Items) != 0 {
+			t.Errorf("should return 0 but received %v", len(result.Items))
 		}
 	})
 
 	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnFetchAll = func(ctx context.Context) ([]domain.User, error) {
-			return []domain.User{}, errors.New("error fetching users")
+		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+			return domain.Page{}, errors.New("error fetching users")
 		}
 
-		_, err := us.Index(ctx)
+		_, err := us.Index(ctx, 0, "")
 		if err == nil {
 			t.Error("should return an error but it didn't")
 		}

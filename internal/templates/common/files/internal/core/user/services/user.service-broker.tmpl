@@ -23,8 +23,18 @@ func (us *userService) WithPublisher(publisher ports.EventPublisher) *userServic
 	return us
 }
 
-func (us *userService) Index(ctx context.Context) ([]domain.User, error) {
-	return us.repo.FetchAll(ctx)
+func (us *userService) Index(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	// Clamp here so the guardrail is one rule for every caller: a missing or
+	// non-positive limit falls back to the default, and no caller can ask for
+	// more than the cap. The repository always receives a sane, bounded limit.
+	if limit <= 0 {
+		limit = domain.DefaultPageLimit
+	}
+	if limit > domain.MaxPageLimit {
+		limit = domain.MaxPageLimit
+	}
+
+	return us.repo.FetchAll(ctx, limit, cursor)
 }
 
 func (us *userService) Show(ctx context.Context, id string) (domain.User, error) {

@@ -7,12 +7,25 @@ import "errors"
 // an over-long name is a client error (422) rather than a driver error (500).
 const MaxNameLength = 100
 
+// Pagination bounds. DefaultPageLimit is applied when a client omits ?limit;
+// MaxPageLimit caps it so a single request can never trigger an unbounded scan
+// or an unbounded payload. Both are enforced in the service, so every consumer
+// (REST, GraphQL, the web-app view, the CLI demo) inherits the same guardrail.
+const (
+	DefaultPageLimit = 20
+	MaxPageLimit     = 100
+)
+
 // Sentinel errors let adapters classify failures so HTTP handlers can map them
 // to the correct status code without leaking driver internals to clients.
 var (
 	ErrUserNotFound = errors.New("user not found")
 	ErrNameRequired = errors.New("name is required")
 	ErrNameTooLong  = errors.New("name is too long")
+	// ErrInvalidCursor is returned when a pagination cursor can't be decoded by
+	// the repository (a malformed or tampered token). Handlers map it to HTTP
+	// 400 — it is a client mistake, distinct from a 422 validation failure.
+	ErrInvalidCursor = errors.New("invalid pagination cursor")
 )
 
 // IsValidationError reports whether err is a client input-validation failure,
@@ -21,7 +34,23 @@ func IsValidationError(err error) bool {
 	return errors.Is(err, ErrNameRequired) || errors.Is(err, ErrNameTooLong)
 }
 
+// The domain entities carry NO serialization tags (no `json:"..."`). Wire
+// formatting is a transport concern owned by the adapters — the REST layer maps
+// these to its own DTOs (see internal/adapters/api), GraphQL has its own schema
+// types, and the web view uses html/template field access. Keeping the core free
+// of transport tags is what lets the wire format change without touching domain.
 type User struct {
-	Id   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	Id   string
+	Name string
+}
+
+// Page is one slice of a list plus an opaque cursor for the next slice.
+// NextCursor is empty when there are no more rows. Its contents are a private
+// detail of whichever repository produced it (a keyset id, a driver paging
+// token, ...) — a client must treat it as opaque and hand it back verbatim as
+// ?cursor= to continue. Page is a plain value type with no third-party imports,
+// so it lives in the core without breaking the architecture boundary.
+type Page struct {
+	Items      []User
+	NextCursor string
 }

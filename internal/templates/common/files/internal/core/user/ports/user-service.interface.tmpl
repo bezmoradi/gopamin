@@ -9,7 +9,7 @@ import (
 type UserServiceInterface interface {
 	Create(ctx context.Context, name string) (string, error)
 	Delete(ctx context.Context, id string) (int64, error)
-	Index(ctx context.Context) ([]domain.User, error)
+	Index(ctx context.Context, limit int, cursor string) (domain.Page, error)
 	Show(ctx context.Context, id string) (domain.User, error)
 	Update(ctx context.Context, id string, name string) (int64, error)
 }

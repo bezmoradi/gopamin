@@ -9,10 +9,13 @@
     <body>
         <h1>Users:</h1>
         <ul>
-            {{`{{range .}}`}}
+            {{`{{range .Items}}`}}
             <li><a href="/users/{{`{{.Id}}`}}">{{`{{.Name}}`}}</a></li>
             {{`{{end}}`}}
         </ul>
+        {{`{{if .NextCursor}}`}}
+        <a href="?cursor={{`{{.NextCursor}}`}}">Next &rarr;</a>
+        {{`{{end}}`}}
     </body>
 </html>
 

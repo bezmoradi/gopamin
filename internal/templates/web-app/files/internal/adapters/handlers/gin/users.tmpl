@@ -1,10 +1,12 @@
 package gin
 
 import (
+	"errors"
 	"html/template"
 	"io/fs"
 	"net/http"
 
+	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/web"
 
 	"github.com/gin-gonic/gin"
@@ -13,9 +15,12 @@ import (
 func (router *router) registerUserRoutes() {
 	r := router.engine.Group(router.globalPrefix)
 
-	r.GET("/", router.IndexHandler)
+	// Register the collection routes on the bare group path ("" not "/") so the
+	// resolved path is /users with no trailing slash — matching the other
+	// frameworks (gin would otherwise serve /users/ and 301-redirect).
+	r.GET("", router.IndexHandler)
 	r.GET("/:id", router.ShowUserHandler)
-	r.POST("/", router.CreateUserHandler)
+	r.POST("", router.CreateUserHandler)
 	r.PUT("/:id", router.UpdateUserHandler)
 	r.DELETE("/:id", router.DeleteUserHandler)
 
@@ -25,7 +30,15 @@ func (router *router) registerUserRoutes() {
 }
 
 func (router router) IndexHandler(c *gin.Context) {
-	result, err := router.service.Index(c.Request.Context())
+	// Forward-only paging: the "Next" link carries an opaque ?cursor. limit 0
+	// lets the service apply its default page size.
+	cursor := c.Request.URL.Query().Get("cursor")
+
+	result, err := router.service.Index(c.Request.Context(), 0, cursor)
+	if errors.Is(err, domain.ErrInvalidCursor) {
+		c.String(http.StatusBadRequest, "invalid pagination cursor")
+		return
+	}
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return

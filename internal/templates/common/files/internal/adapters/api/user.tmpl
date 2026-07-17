@@ -1,0 +1,32 @@
+package api
+
+import "{{.Name}}/internal/core/user/domain"
+
+// User is the JSON representation of a user at the HTTP boundary. The domain
+// entity (domain.User) carries no serialization tags — transport is an adapter
+// concern — so this DTO owns the wire format and maps from the domain type.
+// Change the JSON shape here, never in the core.
+type User struct {
+	Id   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// NewUser maps a domain user to its transport representation.
+func NewUser(u domain.User) User {
+	return User{Id: u.Id, Name: u.Name}
+}
+
+// NewUsers maps a slice of domain users. A nil input stays nil so an empty list
+// still marshals as JSON null, matching the single-object endpoints.
+func NewUsers(users []domain.User) []User {
+	if users == nil {
+		return nil
+	}
+
+	out := make([]User, 0, len(users))
+	for _, u := range users {
+		out = append(out, NewUser(u))
+	}
+
+	return out
+}
