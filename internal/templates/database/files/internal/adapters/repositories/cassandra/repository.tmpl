@@ -201,6 +201,15 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	// PageState() must be read before Close(); an empty state means no more rows.
 	nextPageState := iter.PageState()
 	if err := iter.Close(); err != nil {
+		// A paging state is opaque driver bytes, so unlike the keyset stores it
+		// cannot be validated up front: Cassandra only rejects a forged one at
+		// execution, as a protocol violation by the client message (0x000A).
+		// That is a client error, not a server fault. Scope the mapping to a
+		// supplied cursor so a genuine protocol fault still surfaces as 500.
+		var reqErr gocql.RequestError
+		if cursor != "" && errors.As(err, &reqErr) && reqErr.Code() == gocql.ErrCodeProtocol {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
 		return domain.Page{}, err
 	}
 

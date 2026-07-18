@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	{{- end}}
 	"{{.Name}}/cmd/server"
@@ -43,8 +44,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Consumer side: process events off the broker alongside the HTTP server.
+	// Consumer side: process events off the broker alongside the HTTP server. The
+	// WaitGroup lets main wait for in-flight processing to finish on shutdown,
+	// matching the worker type.
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := broker.Consume(ctx, func(value []byte) {
 			logger.Info("event received", "payload", string(value))
 		}); err != nil && ctx.Err() == nil {
@@ -56,4 +62,9 @@ func main() {
 {{- end}}
 	handlers := {{.Platform}}.NewRouter(service)
 	server.Serve(handlers, logger)
+{{- if .Broker}}
+	// Serve returns only once a signal drained the HTTP server; that same signal
+	// cancelled ctx, so Consume has stopped. Join it so an in-flight message finishes.
+	wg.Wait()
+{{- end}}
 }

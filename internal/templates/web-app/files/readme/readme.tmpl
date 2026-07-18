@@ -1,22 +1,10 @@
 ## Web App Guide
 
-This project is created without any database integration. The `NewUserService` though needs an input param of type `ports.UserRepositoryInterface`; so a `MockRepository` is added to the project to satisfy the `NewUserService` requirements as you can see in the `main` function below:
+This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -d <database>` for persistence.
 
-```go
-// cmd/main.go
-func main() {
-	db := &mock.MockRepository{}
-	service := services.NewUserService(db)
-	handlers := http.NewRouter(service)
-	server.Serve(handlers)
-}
-```
-
-In this case, by visiting `http://localhost:8080/users`, you'll see a webpage showing nothing
+This is a **server-rendered HTML app** (not a JSON API). Visit `http://localhost:8080/users` in a browser to see the user list page (the port is `PORT` in `.env`, default `8080`). The list is **paginated**: when there are more users than fit on a page, a **"Next →"** link appears carrying an opaque `?cursor=…` for the following page.
 
 ### Add A New User
-
-In order to add a new user, run the following curl command in the terminal:
 
 ```text
 curl --location 'http://localhost:8080/users' \
@@ -24,11 +12,9 @@ curl --location 'http://localhost:8080/users' \
 --data-urlencode 'name=John Doe'
 ```
 
-Now by visiting `http://localhost:8080/users`, you'll see a user named John Doe showing on the page.
+Reload `http://localhost:8080/users` to see the new user on the page.
 
 ### Update An Existing User
-
-In order to update an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
 
 ```text
 curl --location --request PUT 'http://localhost:8080/users/<USER_ID>' \
@@ -38,8 +24,17 @@ curl --location --request PUT 'http://localhost:8080/users/<USER_ID>' \
 
 ### Delete An Existing User
 
-In order to delete an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
-
 ```text
 curl --location --request DELETE 'http://localhost:8080/users/<USER_ID>'
 ```
+{{if .Broker}}
+### Events
+
+On a write (creating a user), the app publishes an event to **{{.Broker}}**, and a consumer loop runs alongside the HTTP server. See the "Broker workflow" section of `AGENTS.md`.
+
+**{{.Broker}} runs in a container**: start it with `make docker-up` before `make run`, or the app cannot reach the broker. `make docker-down` stops it (`make docker-down-rm-vol` also drops the volume).
+{{end}}{{if .Observability}}
+### Observability
+
+`make docker-up` also starts an **OpenTelemetry Collector** (config: `configs/otel-collector.yaml`). The app exports traces and metrics to it over OTLP — see the `OTEL_*` keys in `.env`.
+{{end}}

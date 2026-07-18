@@ -64,6 +64,8 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"api-errors":                common.ApiErrorsTemplate,
 		"api-response":              common.ApiResponseTemplate,
 		"api-user":                  common.ApiUserTemplate,
+		"openapi-spec":              common.OpenAPISpecTemplate,
+		"openapi-serve":             common.OpenAPIServeTemplate,
 		"configs":                   common.ConfigsTemplate,
 		"configs-test":              common.ConfigsTestTemplate,
 		"message":                   common.MessageTemplate,

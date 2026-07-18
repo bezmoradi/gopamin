@@ -336,6 +336,20 @@ func ApiUserTemplate() ([]byte, string) {
 	return apiUser, "internal/adapters/api/user.go"
 }
 
+//go:embed files/internal/adapters/api/openapi.tmpl
+var openapiSpec []byte
+
+func OpenAPISpecTemplate() ([]byte, string) {
+	return openapiSpec, "internal/adapters/api/openapi.yaml"
+}
+
+//go:embed files/internal/adapters/api/openapi-serve.tmpl
+var openapiServe []byte
+
+func OpenAPIServeTemplate() ([]byte, string) {
+	return openapiServe, "internal/adapters/api/openapi.go"
+}
+
 //go:embed files/configs/configs.tmpl
 var configs []byte
 

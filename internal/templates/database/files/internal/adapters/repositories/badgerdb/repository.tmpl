@@ -80,6 +80,12 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 		if err != nil {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
+		// Keys are UUIDs, so anything else is a forged or corrupted cursor.
+		// Without this, any base64 text decodes to bytes that Seek happily
+		// accepts, silently returning a page instead of rejecting the input.
+		if _, err := uuid.Parse(string(decoded)); err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
 		afterKey = decoded
 	}
 

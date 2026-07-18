@@ -84,8 +84,8 @@ message received payload=Hello World
 To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure producer, or delete the `broker.Produce(...)` call for a pure consumer. You can also scaffold two separate workers:
 
 ```text
-$ gopamin new -n producer -t worker -b kafka
-$ gopamin new -n consumer -t worker -b kafka
+$ gopamin new -n producer -t worker -b kafka -l {{.Logger}}
+$ gopamin new -n consumer -t worker -b kafka -l {{.Logger}}
 ```
 
 Edit each to keep just its half, then run both with `make run` (start the consumer first so it doesn't miss the producer's message). The consumer logs each payload it receives:

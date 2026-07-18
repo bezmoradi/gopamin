@@ -1,44 +1,77 @@
 ## API Guide
 
-By sending an HTTP GET request to the `http://localhost:8080/api/v1/users` endpoint, you'll get a successful response which shows no data simply because no user is added to the database.
+The API is served under `http://localhost:8080/api/v1/users` (the port is `PORT` in `.env`, default `8080`).
+{{if .Auth}}
+### Authentication
+
+Every `/users` route requires a JWT **bearer token** — without one you get `401`. Get a token from the demo login endpoint (credentials are `AUTH_USERNAME` / `AUTH_PASSWORD` in `.env`):
+
+```text
+curl --location --request POST 'http://localhost:8080/login' \
+--header 'Content-Type: application/json' \
+--data '{"username": "admin", "password": "change-me"}'
+# -> {"token":"<JWT>"}
+```
+
+Add `--header 'Authorization: Bearer <JWT>'` to every request below.
+{{end}}
+### List Users (cursor-paginated)
+
+```text
+curl --location 'http://localhost:8080/api/v1/users?limit=20'{{if .Auth}} \
+--header 'Authorization: Bearer <JWT>'{{end}}
+```
+
+The list is **cursor-paginated**: `?limit=N` bounds the page (default `20`, max `100`). When more rows remain, the response carries a `next_cursor` — pass it back as `?cursor=<next_cursor>` to fetch the next page (an opaque token; do not build it yourself).
 
 ### Add A New User
 
-In order to add a new user, run the following curl command in the terminal:
-
 ```text
 curl --location 'http://localhost:8080/api/v1/users' \
---header 'Content-Type: application/json' \
---data '{
-    "name": "John Doe"
-}'
+--header 'Content-Type: application/json'{{if .Auth}} \
+--header 'Authorization: Bearer <JWT>'{{end}} \
+--data '{"name": "John Doe"}'
 ```
 
-Now by sending an HTTP GET request to the `http://localhost:8080/api/v1/users`, you'll see a user named John Doe in the response.
-
-### Fetch An Existing User 
-In order to fetch an existing user by ID, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
+### Fetch An Existing User
 
 ```text
-curl --location 'http://localhost:8080/api/v1/users/<USER_ID>'
+curl --location 'http://localhost:8080/api/v1/users/<USER_ID>'{{if .Auth}} \
+--header 'Authorization: Bearer <JWT>'{{end}}
 ```
 
 ### Update An Existing User
 
-In order to update an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
-
 ```text
 curl --location --request PUT 'http://localhost:8080/api/v1/users/<USER_ID>' \
---header 'Content-Type: application/json' \
---data '{
-    "name": "Jane Doe"
-}'
+--header 'Content-Type: application/json'{{if .Auth}} \
+--header 'Authorization: Bearer <JWT>'{{end}} \
+--data '{"name": "Jane Doe"}'
 ```
 
 ### Delete An Existing User
 
-In order to delete an existing user, run the following curl command in the terminal (Replace the `<USER_ID>` with an actual ID):
-
 ```text
-curl --location --request DELETE 'http://localhost:8080/api/v1/users/<USER_ID>'
+curl --location --request DELETE 'http://localhost:8080/api/v1/users/<USER_ID>'{{if .Auth}} \
+--header 'Authorization: Bearer <JWT>'{{end}}
 ```
+{{if .OpenAPI}}
+### API Documentation (Swagger)
+
+The app serves its own API docs — no external tooling needed:
+
+- **Swagger UI** (interactive, "try it out"): `http://localhost:8080/swagger/`
+- **Raw OpenAPI spec**: `http://localhost:8080/openapi.yaml`
+
+The spec lives at `internal/adapters/api/openapi.yaml` — update it when you add or change a route.
+{{end}}{{if .Broker}}
+### Events
+
+On a write (creating a user), the service publishes an event to **{{.Broker}}**, and a consumer loop runs alongside the HTTP server logging received messages. See the "Broker workflow" section of `AGENTS.md`.
+
+**{{.Broker}} runs in a container**: start it with `make docker-up` before `make run`, or the app cannot reach the broker. `make docker-down` stops it (`make docker-down-rm-vol` also drops the volume).
+{{end}}{{if .Observability}}
+### Observability
+
+`make docker-up` also starts an **OpenTelemetry Collector** (config: `configs/otel-collector.yaml`). The app exports traces and metrics to it over OTLP — see the `OTEL_*` keys in `.env`. With the collector running, requests appear as spans in its debug output.
+{{end}}

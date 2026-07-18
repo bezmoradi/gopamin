@@ -79,6 +79,7 @@ func buildAPI(p *Project) {
 	buildLogger(p)
 	buildObservability(p)
 	buildAuth(p)
+	buildOpenAPI(p)
 	if p.Broker != "" {
 		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
 		goGetPackages(p.Path, workerRecipes[p.Broker])

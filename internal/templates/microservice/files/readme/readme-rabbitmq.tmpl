@@ -82,8 +82,8 @@ message received payload=Hello World
 To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure publisher, or delete the `broker.Produce(...)` call for a pure subscriber. You can also scaffold two separate workers:
 
 ```text
-$ gopamin new -n publisher -t worker -b rabbitmq
-$ gopamin new -n subscriber -t worker -b rabbitmq
+$ gopamin new -n publisher -t worker -b rabbitmq -l {{.Logger}}
+$ gopamin new -n subscriber -t worker -b rabbitmq -l {{.Logger}}
 ```
 
 Edit each to keep just its half, then run both with `make run` (start the subscriber first so it doesn't miss the publisher's message). The subscriber logs each payload it receives:

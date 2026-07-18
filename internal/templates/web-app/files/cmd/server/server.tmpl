@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+{{- if .Observability}}
+	"strings"
+{{- end}}
 	"syscall"
 	"time"
 
@@ -52,7 +55,7 @@ func Serve(handlers shared.RouterInterface, logger shared.Logger) {
 		middleware.RequestLogger(logger),
 		middleware.CORS,
 		middleware.Timeout(10*time.Second),
-	){{if .Observability}}, "http.server"){{end}})
+	){{if .Observability}}, "http.server", otelhttp.WithSpanNameFormatter(spanName)){{end}})
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
@@ -80,3 +83,32 @@ func Serve(handlers shared.RouterInterface, logger shared.Logger) {
 		logger.Error("graceful shutdown failed", "error", err)
 	}
 }
+{{- if .Observability}}
+
+// spanName names each span after its route template. otelhttp otherwise derives
+// the name from the mux pattern this handler is mounted on — "/" — so every
+// request collapses into one "GET /" span and per-endpoint latency is unreadable.
+//
+// The route template is used rather than the raw path on purpose: span name is a
+// low-cardinality dimension, so a distinct name per user id (or per scanner URL)
+// would be a worse problem than the one being fixed. Everything unrouted folds
+// into "/". Keep this in step with the routes registered in the handlers package.
+func spanName(_ string, r *http.Request) string {
+	return r.Method + " " + routeTemplate(r.URL.Path)
+}
+
+func routeTemplate(path string) string {
+	const users = "/users"
+
+	switch {
+	case path == users || path == users+"/":
+		return users
+	case strings.HasPrefix(path, "/assets/"):
+		return "/assets/*"
+	case strings.HasPrefix(path, users+"/"):
+		return users + "/{id}"
+	default:
+		return "/"
+	}
+}
+{{- end}}

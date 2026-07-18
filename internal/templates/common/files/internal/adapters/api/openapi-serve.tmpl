@@ -1,0 +1,29 @@
+package api
+
+import (
+	_ "embed"
+	"net/http"
+
+	swgui "github.com/swaggest/swgui/v5emb"
+)
+
+// openapiSpec is the generated OpenAPI document, compiled into the binary so the
+// service is self-contained (no spec file to deploy alongside it).
+//
+//go:embed openapi.yaml
+var openapiSpec []byte
+
+// SpecHandler serves the embedded OpenAPI document. Swagger UI parses YAML
+// natively, so it is served as application/yaml — no JSON conversion needed.
+func SpecHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		_, _ = w.Write(openapiSpec)
+	}
+}
+
+// SwaggerUIHandler serves interactive Swagger UI. The v5emb variant embeds all
+// UI assets into the binary (no CDN), pointed at the spec served by SpecHandler.
+func SwaggerUIHandler() http.Handler {
+	return swgui.New("{{.Name}} API", "/openapi.yaml", "/swagger/")
+}

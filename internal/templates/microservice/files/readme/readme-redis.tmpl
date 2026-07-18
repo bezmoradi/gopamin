@@ -26,10 +26,10 @@ $ make docker-down-rm-vol
 
 ## Publish A New Message
 
-By running the following command in the terminal, open the Redis CLI:
+By running the following command in the terminal, open the Redis CLI. The container is started with `--requirepass`, so you must pass the password from `REDIS_PASSWORD` in `.env` — without `-a` every command returns `NOAUTH Authentication required.`:
 
 ```text
-$ redis-cli
+$ redis-cli -a doe
 ```
 
 In the Redis CLI, subscribe to a channel using the `SUBSCRIBE` command. For example, if you want to subscribe to a channel named `testing`, you need to run the following command:
@@ -88,8 +88,8 @@ message received payload=Hello World
 To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure publisher, or delete the `broker.Produce(...)` call for a pure subscriber. You can also scaffold two separate workers:
 
 ```text
-$ gopamin new -n publisher -t worker -b redis
-$ gopamin new -n subscriber -t worker -b redis
+$ gopamin new -n publisher -t worker -b redis -l {{.Logger}}
+$ gopamin new -n subscriber -t worker -b redis -l {{.Logger}}
 ```
 
 Edit each to keep just its half, then run both with `make run` (start the subscriber first so it doesn't miss the publisher's message). The subscriber logs each payload it receives:

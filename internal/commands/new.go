@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"os"
+
 	"github.com/bezmoradi/gopamin/internal/scaffolder"
 	"github.com/spf13/cobra"
 )
@@ -15,6 +17,7 @@ var (
 	ci            string
 	observability string
 	auth          string
+	openapi       string
 )
 
 var newCmd = &cobra.Command{
@@ -33,9 +36,13 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
 	Use:   "new",
 	Short: "Create a new project",
 	Run: func(cmd *cobra.Command, args []string) {
-		if argsValidator() {
-			scaffolder.New(projectType, framework, broker, name, database, logger, ci, observability, auth)
+		// argsValidator prints a specific message for the first rule it fails.
+		// Exit non-zero on rejection so scripts and CI can detect the failure
+		// (the flag values are invalid input, not a successful no-op).
+		if !argsValidator() {
+			os.Exit(1)
 		}
+		scaffolder.New(projectType, framework, broker, name, database, logger, ci, observability, auth, openapi)
 	},
 }
 
@@ -60,7 +67,7 @@ Available values for the "api" type are:
  - graphql
 Available values for the "web-app" type are the same minus graphql.`)
 
-	newCmd.Flags().StringVarP(&broker, "broker", "b", "", `The message broker. Required for the "worker" type. Available values are:
+	newCmd.Flags().StringVarP(&broker, "broker", "b", "", `The message broker. Required for the "worker" type; optional for "api"/"web-app" (adds a producer on writes + a consumer loop alongside the HTTP server). Available values are:
  - kafka
  - rabbitmq
  - redis`)
@@ -75,7 +82,7 @@ Available values for the "web-app" type are the same minus graphql.`)
  - dynamodb
  - badgerdb`)
 
-	newCmd.Flags().StringVarP(&logger, "logger", "l", "", `Type of the logger. Available values are:
+	newCmd.Flags().StringVarP(&logger, "logger", "l", "", `Type of the logger (required for every project type). Available values are:
  - log
  - slog
  - logrus
@@ -87,7 +94,8 @@ Available values for the "web-app" type are the same minus graphql.`)
 The pipeline runs build, test, "make lint", and "make arch-check".`)
 
 	newCmd.Flags().StringVarP(&observability, "observability", "o", "", `Optional observability stack to generate (for "api", "web-app", and "worker"). Available values are:
- - otel (OpenTelemetry: HTTP/runtime traces + metrics, OTLP export to a collector)
+ - otel (OpenTelemetry: traces + Go runtime metrics, OTLP export to a collector; HTTP
+   request spans for api/web-app, a per-message span for a worker)
 It adds an "internal/adapters/observability" package, an OTEL_* block in .env, and a
 collector service in docker-compose.yml. Configure it via the standard OTEL_* env vars.`)
 
@@ -95,6 +103,11 @@ collector service in docker-compose.yml. Configure it via the standard OTEL_* en
  - jwt (bearer-token JWT: a validation middleware protecting every app route, plus a
    demo POST /login token issuer, using golang-jwt/v5 with HS256 + algorithm pinning)
 It adds an "internal/adapters/handlers/auth" package and a JWT_*/AUTH_* block in .env.`)
+
+	newCmd.Flags().StringVarP(&openapi, "openapi", "s", "", `Optional API documentation to generate (for REST "api" projects only). Available values are:
+ - swagger (a templated openapi.yaml describing the generated API, plus embedded
+   Swagger UI served at /swagger with the spec at /openapi.yaml, via swaggest/swgui)
+It adds "openapi.yaml" + an OpenAPI serving handler to "internal/adapters/api".`)
 
 	rootCmd.AddCommand(newCmd)
 }

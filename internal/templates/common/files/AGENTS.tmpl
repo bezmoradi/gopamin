@@ -113,7 +113,11 @@ The dependency rule above is checked mechanically by `make arch` ([go-arch-lint]
 
 If go-arch-lint ever reports a dependency you can't find in your imports, it's almost certainly `deepScan` tracing a dependency-injection call in `cmd` — leave `deepScan: false` (the config enforces the import graph, not data-flow).
 
+{{- if .CI}}
+The generated CI pipeline ({{if eq .CI "github"}}`.github/workflows/ci.yml`{{else}}`.gitlab-ci.yml`{{end}}) already runs `make arch-check`, so a boundary violation blocks the build — `arch-check` exits non-zero on a violation and also fails if the linter has been silently disabled. Add it to a pre-push hook too if you want the feedback before you push.
+{{- else}}
 This project ships **no CI**, so nothing runs the check automatically yet. Wire `make arch-check` into your CI pipeline (or a pre-push hook) to make boundary violations actually block a merge — `arch-check` exits non-zero on a violation and also fails if the linter has been silently disabled.
+{{- end}}
 
 ## This project's stack
 {{- if $isWorker}}
@@ -123,6 +127,9 @@ This project ships **no CI**, so nothing runs the check automatically yet. Wire 
 {{- if $hasHTTP}}
 - HTTP framework: `{{.Platform}}` — handlers in `internal/adapters/handlers/{{.Platform}}`
 {{- end}}
+{{- if $hasBroker}}
+- Message broker: `{{.Broker}}` — producer + consumer alongside the HTTP server (`internal/adapters/brokers/{{.Broker}}`); see [Broker workflow](#broker-workflow).
+{{- end}}
 {{- end}}
 {{- if $usesMock}}
 - Datastore: in-memory mock (`internal/adapters/repositories/mock`) — no database selected, so data is **not durable** and not production-safe.
@@ -130,11 +137,20 @@ This project ships **no CI**, so nothing runs the check automatically yet. Wire 
 - Database: `{{.Database}}` — repository in `internal/adapters/repositories/{{.Database}}`
 {{- end}}
 - Logger: `{{.Logger}}` — adapter in `internal/adapters/loggers/{{.Logger}}`
+{{- if .Auth}}
+- Authentication: JWT bearer (`internal/adapters/handlers/auth`); see [Authentication](#authentication-jwt).
+{{- end}}
+{{- if .OpenAPI}}
+- API docs: OpenAPI + Swagger UI at `/swagger` (`internal/adapters/api`); see [API documentation](#api-documentation-openapi--swagger).
+{{- end}}
 {{- if $isRest}}
 
 ## HTTP API
 
 Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "data"?, "error"?}`.
+{{if .Auth}}
+**Every `/users` route requires a bearer token** — send `Authorization: Bearer <token>` (get one from `POST /login`). Without a valid token the response is `401`. See [Authentication](#authentication-jwt).
+{{end}}
 
 | Method | Path | Purpose | Success |
 |---|---|---|---|
@@ -154,6 +170,20 @@ Two things to know when writing a `while next_cursor != ""` client:
 
 ```bash
 # create, then page (server on :8080 by default — see PORT)
+{{- if $hasAuth}}
+# every /api/v1/* route is behind the bearer token, so mint one first
+# (AUTH_USERNAME/AUTH_PASSWORD come from .env); without it every call below is 401
+TOKEN=$(curl -s -XPOST localhost:8080/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"change-me"}' | jq -r .token)
+curl -s -XPOST localhost:8080/api/v1/users -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"alice"}'
+#   -> 201 {"message":"Created user successfully","data":"<id>"}
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/v1/users?limit=2'
+#   -> 200 {"message":"Fetched users successfully","data":[...2 users...],"next_cursor":"<opaque>"}
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/v1/users?limit=2&cursor=<opaque>'
+#   -> 200 the next page; when "next_cursor" is absent you have reached the end
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/users/does-not-exist
+#   -> 404 {"error":"Not found"}
+{{- else}}
 curl -s -XPOST localhost:8080/api/v1/users -H 'Content-Type: application/json' -d '{"name":"alice"}'
 #   -> 201 {"message":"Created user successfully","data":"<id>"}
 curl -s 'localhost:8080/api/v1/users?limit=2'
@@ -162,6 +192,7 @@ curl -s 'localhost:8080/api/v1/users?limit=2&cursor=<opaque>'
 #   -> 200 the next page; when "next_cursor" is absent you have reached the end
 curl -s localhost:8080/api/v1/users/does-not-exist
 #   -> 404 {"error":"Not found"}
+{{- end}}
 ```
 {{- end}}
 {{- if $isGraphql}}
@@ -179,11 +210,22 @@ Single endpoint: `POST /graphql` (GraphiQL is disabled). Schema and resolvers li
 
 ```bash
 # create (server on :8080 by default — see PORT)
+{{- if $hasAuth}}
+# /graphql is behind the bearer token, so mint one first; without it every call is 401
+TOKEN=$(curl -s -XPOST localhost:8080/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"change-me"}' | jq -r .token)
+curl -s -XPOST localhost:8080/graphql -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"query":"mutation { create(name: \"alice\") }"}'
+# query a page
+curl -s -XPOST localhost:8080/graphql -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"query":"{ users(limit: 2) { items { id name } next_cursor } }"}'
+{{- else}}
 curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
   -d '{"query":"mutation { create(name: \"alice\") }"}'
 # query a page
 curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
   -d '{"query":"{ users(limit: 2) { items { id name } next_cursor } }"}'
+{{- end}}
 ```
 {{- end}}
 {{- if $isWeb}}
@@ -200,7 +242,7 @@ Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/ada
 | `PUT` | `/users/:id` | update |
 | `DELETE` | `/users/:id` | delete |
 
-The list page is **forward-only paginated**: when more rows remain it renders a `Next →` link carrying an opaque `?cursor=…` (default page size `20`). This is a deliberately minimal browse UX — there is no "Previous" (backward cursors are out of scope). A hand-edited, malformed `?cursor` surfaces as a `500`; the generated `Next` links always carry a valid cursor.
+The list page is **forward-only paginated**: when more rows remain it renders a `Next →` link carrying an opaque `?cursor=…` (default page size `20`). This is a deliberately minimal browse UX — there is no "Previous" (backward cursors are out of scope). A hand-edited, malformed `?cursor` surfaces as a `400`; the generated `Next` links always carry a valid cursor.
 
 Static assets are served from `/assets/*`. HTML templates and CSS live in `internal/web` and are **embedded into the binary** via `//go:embed`, so the compiled binary is self-contained (no runtime file dependencies). The server listens on `:8080` by default (see `PORT`).
 {{- end}}
@@ -216,6 +258,21 @@ Two orchestration endpoints are mounted at the transport layer (in `cmd/server`)
 | `GET` | `/readyz` | readiness — ready to accept traffic | `200 {"status":"ready"}` |
 
 Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kubernetes). The handlers live in `internal/adapters/handlers/health`; extend `Ready` to check critical dependencies (database, broker) and return `503` when any is unavailable, so the readiness probe can gate traffic.
+{{- if .OpenAPI}}
+
+## API documentation (OpenAPI / Swagger)
+
+The API is documented by an OpenAPI 3.0.3 spec served by the app, with interactive Swagger UI:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/openapi.yaml` | the raw OpenAPI document (`application/yaml`) |
+| `GET` | `/swagger/` | interactive Swagger UI ("try it out") |
+
+Both are mounted at the transport layer in `cmd/server` (so they work for every framework) and are **self-contained**: the spec is embedded via `//go:embed` and the Swagger UI assets are compiled into the binary by `swaggest/swgui` — no CDN, nothing to deploy alongside. The serving handlers are `api.SpecHandler` / `api.SwaggerUIHandler` in `internal/adapters/api`.{{if .Auth}} The spec declares a `bearerAuth` security scheme; use `POST /login` to get a token, then paste it into Swagger UI's **Authorize** dialog.{{end}}
+
+**The spec is templated, not scraped** — it lives in `internal/adapters/api/openapi.yaml` and was written to match the generated handlers. It is **not** auto-derived from them, so **when you add or change a route, update `openapi.yaml` too** (same discipline as this file and the README). If you'd rather have the spec regenerated from code, swap to annotation-driven generation with [swaggo/swag](https://github.com/swaggo/swag) (`// @Summary`/`// @Router` comments + a `swag init` build step) — more machinery, but it re-derives the doc from annotated handlers.
+{{- end}}
 
 ## Middleware
 
@@ -230,7 +287,7 @@ This project exports **traces and metrics** over OTLP/gRPC to a collector. The s
 - **Instrumented:** {{if $hasHTTP}}inbound HTTP requests (one span each, via `otelhttp` at the transport wrap in `cmd/server`){{else}}each consumed message (a span in `cmd/main`){{end}}, plus **Go runtime metrics** (GC, goroutines, heap) and W3C trace-context propagation.
 - **Config is all `OTEL_*` env vars in `.env`** — endpoint, `OTEL_SERVICE_NAME`, resource attributes, and the trace sampler (`OTEL_TRACES_SAMPLER`/`_ARG`) are read natively by the SDK; no code override. Lower the sampler ratio in production and/or tail-sample in the collector.
 - **Local pipeline:** `make docker-up` starts an `otel-collector` (config `configs/otel-collector.yaml`) that logs received telemetry. Add a real backend (Jaeger, Tempo, Prometheus, a vendor) by extending that config — no app change.
-- **Fail-open:** if the collector is unreachable the app still starts and serves; export errors are silenced (`otel.SetErrorHandler`) so they don't flood logs. Buffered telemetry flushes on shutdown{{if $hasHTTP}}, after the HTTP server drains{{else}}, after the consumer goroutine is joined{{end}}.
+- **Fail-open:** if the collector is unreachable the app still starts and {{if $hasHTTP}}serves{{else}}runs{{end}}; export errors are silenced (`otel.SetErrorHandler`) so they don't flood logs. Buffered telemetry flushes on shutdown{{if $hasHTTP}}, after the HTTP server drains{{else}}, after the consumer goroutine is joined{{end}}.
 - **Adding instrumentation:** do it in **adapters** or `cmd`, never the core. Grab a tracer with `otel.Tracer("name")` and start a span from the request/message `context.Context`. A business-logic span belongs behind a port, not a direct SDK import in `services`.
 {{- if $hasHTTP}}
 - **Route labels:** the HTTP wrap is framework-agnostic, so spans/metrics are **not** split per route (every endpoint reports route `/`). For per-endpoint RED metrics, add framework middleware (`otelecho`/`otelgin`/…).
@@ -250,18 +307,27 @@ Every application route requires a bearer token; a demo `POST /login` issues one
 {{- end}}
 - **Productionize before shipping:** the loud `JWT_SECRET` placeholder must become a strong (≥32-byte) secret from a secret store, rotated; and the demo env-credential check in `LoginHandler` must be replaced with a **real user store + password hash** (bcrypt/argon2). Serve over TLS only (a bearer token is a password). Not yet included: refresh tokens, revocation, and role/scope authorization.
 {{- end}}
-{{- if $isWorker}}
+{{- if $hasBroker}}
 
 ## Broker workflow
+{{- if $isWorker}}
 
 This worker has **no HTTP server**. On startup, `cmd/main.go`:
 
 1. connects to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`);
 2. publishes one sample `Message{Data: "Hello World"}` (JSON) to the `testing` {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}};
-3. runs a consume loop that logs every message as `message received`;
+3. runs a consume loop that {{if $hasRealDB}}persists every message through the user service (only failures are logged){{else}}logs every message as `message received`{{end}};
 4. shuts down gracefully on `SIGINT`/`SIGTERM` (via `signal.NotifyContext`).
+{{- else}}
 
-{{if eq .Broker "redis"}}The consumer subscribes at construction (before the startup publish), so the sample message is consumed on a fresh run. Redis pub/sub drops messages sent while no subscriber is connected — publish to the `testing` channel from another client (e.g. `redis-cli PUBLISH testing '...'`) to feed the running worker.{{else if eq .Broker "kafka"}}Kafka retains the topic log, so the sample message is consumed even though it is produced before the consumer starts. Produce more messages to the `testing` topic from any Kafka client to feed the running worker.{{else}}RabbitMQ queues the message, so the sample is consumed even though it is produced before the consumer starts. Publish more messages to the `testing` queue from any AMQP client to feed the running worker.{{end}}
+This {{if $isWeb}}web app{{else}}API{{end}} adds event messaging **alongside** its HTTP server (one binary):
+
+1. **Producer** — the user service holds an `EventPublisher` port (wired with `WithPublisher`), so a write (e.g. creating a user) publishes an event to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`). The core stays broker-agnostic — it depends on the port, not the client.
+2. **Consumer** — a consume loop runs in a goroutine next to the HTTP server, logging every message as `event received`, and is joined on shutdown (a `sync.WaitGroup`, as in the `worker` type) so in-flight messages finish.
+3. Both share the process's signal context, so `SIGINT`/`SIGTERM` drains the HTTP server and stops the consumer together.
+{{- end}}
+
+{{if eq .Broker "redis"}}The consumer subscribes at construction, so a message published on the `testing` channel while it is running is delivered. Redis pub/sub drops messages sent while no subscriber is connected — publish from another client (e.g. `redis-cli PUBLISH testing '...'`) to feed it.{{else if eq .Broker "kafka"}}Kafka retains the topic log, so messages are consumed even if produced before the consumer starts. Produce more messages to the `testing` topic from any Kafka client.{{else}}RabbitMQ queues messages, so they are consumed even if produced before the consumer starts. Publish more messages to the `testing` queue from any AMQP client.{{end}}
 {{- end}}
 
 ## Running
@@ -296,11 +362,16 @@ The migrate CLI is pinned and run via `go run` (never added to `go.mod`), mirror
 {{end}}
 ## Environment variables
 
-Configuration is loaded from `.env` at the project root (via `godotenv`). Real shell environment variables take precedence over `.env`, so you can override any key inline (e.g. `PORT=9000 make run`).
+Configuration is loaded from `.env` at the project root (via `godotenv`). Real shell environment variables take precedence over `.env`, so you can override any key inline{{if $hasHTTP}} (e.g. `PORT=9000 make run`){{else}} (e.g. `LOG_LEVEL=debug make run`){{end}}.
 
 {{if $hasHTTP}}- `PORT` — HTTP listen port (default `8080`).
-{{end}}{{if $hasRealDB}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
-{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
+{{end}}{{if $hasRealDB}}{{if eq .Database "sqlite"}}- `SQLITE_DB_URL` — the SQLite database file path (embedded; default `./test.db`, no server).
+{{else if eq .Database "badgerdb"}}- BadgerDB is embedded and writes its data under `./badger` — it has no connection settings in `.env`.
+{{else if eq .Database "dynamodb"}}- `{{.Database}}` endpoint, region, and credentials. See `.env` for the exact keys.
+{{else}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
+{{end}}{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
+{{end}}{{if .Auth}}- `JWT_SECRET`, `JWT_TTL`, `JWT_ISSUER`, `AUTH_USERNAME`, `AUTH_PASSWORD` — JWT signing + demo login credentials (see the Authentication section).
+{{end}}{{if .Observability}}- `OTEL_*` — OpenTelemetry exporter endpoint, sampler, and resource attributes (see the Observability section).
 {{end}}See `.env` for the full, authoritative list of keys this project reads.
 
 ## Testing

@@ -39,6 +39,10 @@ type Project struct {
 	// with -a (api only); when set, templates emit the auth adapter (bearer
 	// validation middleware + demo /login issuer) and a JWT_*/AUTH_* env block.
 	Auth string
+	// OpenAPI is the optional API-docs stack ("swagger", empty for none) selected
+	// with -s (REST api only); when set, templates emit a templated openapi.yaml
+	// plus embedded Swagger UI served at /swagger.
+	OpenAPI string
 }
 
 // ciRecipes maps a -c value to the template that renders its pipeline file.
@@ -47,7 +51,7 @@ var ciRecipes = map[string]string{
 	"gitlab": "gitlab-ci",
 }
 
-func New(projectType, platform, broker, name, database, logger, ci, observability, auth string) {
+func New(projectType, platform, broker, name, database, logger, ci, observability, auth, openapi string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
@@ -76,6 +80,7 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		CI:            ci,
 		Observability: observability,
 		Auth:          auth,
+		OpenAPI:       openapi,
 	}
 
 	if err := generateProjectAgnosticFiles(&p); err != nil {

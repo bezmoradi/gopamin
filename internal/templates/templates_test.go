@@ -24,6 +24,7 @@ type sampleProject struct {
 	CI            string
 	Observability string
 	Auth          string
+	OpenAPI       string
 }
 
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell

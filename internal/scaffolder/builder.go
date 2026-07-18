@@ -62,6 +62,13 @@ func hasAuth(p *Project) bool {
 	return p.Auth == "jwt"
 }
 
+// hasOpenAPI reports whether the project ships the OpenAPI/Swagger stack (selected
+// with -s swagger). REST api only — graphql has its own introspection, so it is
+// excluded here as well as by the validator.
+func hasOpenAPI(p *Project) bool {
+	return p.OpenAPI == "swagger" && p.Platform != "graphql"
+}
+
 // hasCompose reports whether the project needs a docker-compose.yml + the docker-*
 // make targets: true for a containerized backend (database/broker) OR observability
 // (which contributes an otel-collector service).
@@ -102,6 +109,18 @@ func buildAuth(p *Project) {
 	}
 	fileGenerator([]string{"auth"}, p)
 	goGetPackages(p.Path, []string{"github.com/golang-jwt/jwt/v5"})
+}
+
+// buildOpenAPI emits the templated OpenAPI document plus the Swagger-UI serving
+// adapter, and fetches the embedded Swagger-UI package. The /openapi.yaml and
+// /swagger routes are mounted by the cmd/server template (guarded on .OpenAPI).
+func buildOpenAPI(p *Project) {
+	if !hasOpenAPI(p) {
+		return
+	}
+	fileGenerator([]string{"openapi-spec"}, p)
+	fileGenerator([]string{"openapi-serve"}, p)
+	goGetPackages(p.Path, []string{"github.com/swaggest/swgui/v5emb"})
 }
 
 // buildDatabase generates the user repository stack plus the chosen database's

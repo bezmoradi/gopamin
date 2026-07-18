@@ -86,6 +86,17 @@ func argsValidator() bool {
 		}
 	}
 
+	if openapi != "" {
+		if projectType != "api" || framework == "graphql" {
+			fmt.Println(`The -s flag is only supported for REST "api" projects (not graphql)`)
+			return false
+		}
+		if !openapiValidator() {
+			fmt.Println(`The specified value for the -s flag is wrong. For more help, type "gopamin new -h"`)
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -191,6 +202,15 @@ func observabilityValidator() bool {
 func authValidator() bool {
 	switch auth {
 	case "jwt":
+		return true
+	}
+
+	return false
+}
+
+func openapiValidator() bool {
+	switch openapi {
+	case "swagger":
 		return true
 	}
 
