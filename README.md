@@ -24,12 +24,12 @@ All boilerplates created by Gopamin are based on [The Clean Architecture](https:
 The minimum required tools for using the Gopamin CLI tool is Golang v1.26.0 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
 
 - **[Git](https://git-scm.com/)**: By default each new project created by this tool initializes a Git repo; that's why you need to make sure Git is installed on your machine.
-- **[Docker](https://www.docker.com)**: If you choose to create a new project with database integration, a `docker-compose.yml` will be included in the root of the project for running the database of your choice.
+- **[Docker](https://www.docker.com)**: If you choose to create a new project with a containerized database, a message broker, and/or observability, a merged `docker-compose.yml` will be included in the root of the project for running those backends locally.
 - **[GNU Make](https://www.gnu.org/software/make)**: This a tool which controls the generation of executables and other types of files. By default, each new project includes a `Makefile` for running some most-used commands like running an application (This tool is installed by default on Mac and some distributions of Linux). To check whether this tool is installed on your machine, open terminal and run `make --version` (If you do not have this tool installed on your machine though, still you can use this tools without any limitations).
 
 ## Supported Flags
 
-A project is defined by **orthogonal capabilities**: the **type** (`-t`) picks the app's primary interface (HTML, JSON/GraphQL, or message-driven), while a **framework** (`-f`), a **broker** (`-b`), and a **database** (`-d`) are optional capabilities you attach to it. You can mix them freely.
+A project is defined by **orthogonal capabilities**: the **type** (`-t`) picks the app's primary interface (HTML, JSON/GraphQL, or message-driven), while a **framework** (`-f`), a **broker** (`-b`), and a **database** (`-d`) are optional capabilities you attach to it. On top of those, a set of **cross-cutting features** — a CI pipeline (`-c`), observability (`-o`), authentication (`-a`), and API documentation (`-s`) — can be layered on. You can mix them freely.
 
 | Flag | Description | Required | Options |
 |------|-------------|----------|---------|
@@ -39,13 +39,19 @@ A project is defined by **orthogonal capabilities**: the **type** (`-t`) picks t
 | `-b`, `--broker` | Message broker — publishes an event on every write and runs a consumer loop | Required for `worker`; optional for `api` / `web-app` | `kafka`, `rabbitmq`, `redis` |
 | `-d`, `--database` | Database | Optional (for any type) | `mysql`, `mariadb`, `postgres`, `mongodb`, `cassandra`, `sqlite`, `dynamodb`, `badgerdb` |
 | `-l`, `--logger` | Logging library | Always | `log`, `slog`, `logrus`, `zap` |
+| `-c`, `--ci` | CI pipeline (build, test, `make lint`, `make arch-check`) | Optional (for any type) | `github` (`.github/workflows/ci.yml`), `gitlab` (`.gitlab-ci.yml`) |
+| `-o`, `--observability` | Observability stack | Optional (any type **except** `hello-world`) | `otel` — OpenTelemetry traces + Go runtime metrics, OTLP export to a collector |
+| `-a`, `--auth` | Authentication | Optional (`api` only) | `jwt` — bearer-token middleware on every route + a demo `POST /login` issuer (golang-jwt/v5, HS256 + algorithm pinning) |
+| `-s`, `--openapi` | API documentation | Optional (REST `api` only — not `graphql`) | `swagger` — a templated `openapi.yaml` + embedded Swagger UI at `/swagger` (via swaggest/swgui) |
 
 A few things worth knowing:
 
 - A `worker` is a **headless, broker-driven service** — it has no HTTP server (so it takes no `-f`) and is triggered by messages off its broker.
 - Adding `-b` to an `api` or `web-app` gives you one binary that runs the HTTP server **and** a broker consumer side by side, publishing an event on every write. In other words, "an API that is also a worker" is `-t api -f <framework> -b <broker>`.
-- When a containerized database and/or a broker is selected, a single merged `docker-compose.yml` (plus `docker-up` / `docker-down` make targets) is generated so every backend runs together for local development.
+- When a containerized database and/or a broker is selected, a single merged `docker-compose.yml` (plus `docker-up` / `docker-down` make targets) is generated so every backend runs together for local development. Adding `-o otel` also merges an OpenTelemetry collector into that same compose file.
 - Redis is a broker/cache, offered only via `-b` — it is intentionally **not** a database option.
+- The cross-cutting flags stack: a single `api` can carry a framework, a broker, a database, a logger, CI, observability, auth, **and** OpenAPI docs all at once.
+- Every generated project ships a `.go-arch-lint.yml` plus `make arch` / `make arch-check` targets, so the Clean Architecture dependency rule is a **build-enforced** invariant, not just documentation.
 
 ## Recipes
 
@@ -62,6 +68,9 @@ Because the flags are orthogonal, you can combine them freely. Some representati
 | `gopamin new -n app -t web-app -f gin -d mongodb -l zap` | Server-rendered web app + MongoDB |
 | `gopamin new -n app -t worker -b rabbitmq -d postgres -l slog` | Headless worker: consume a message → persist it |
 | `gopamin new -n app -t worker -b kafka -l logrus` | Headless worker with no database |
+| `gopamin new -n app -t api -f echo -d postgres -l slog -a jwt -s swagger` | REST API + PostgreSQL, JWT-protected, with Swagger UI at `/swagger` |
+| `gopamin new -n app -t api -f chi -d mysql -l slog -o otel -c github` | REST API + MySQL, OpenTelemetry traces/metrics, and a GitHub Actions pipeline |
+| `gopamin new -n app -t api -f echo -b kafka -d postgres -l slog -o otel -a jwt -s swagger -c gitlab` | The works: persistence, events, auth, docs, tracing, and CI in one binary |
 
 ## Installation
 
