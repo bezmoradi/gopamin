@@ -12,6 +12,11 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// internalFailure is what a server-side fault tells the browser. The underlying
+// error is deliberately never echoed: it can carry datastore credentials, host
+// names, and query text. Log it if you need it; do not render it.
+const internalFailure = "internal server error"
+
 func (router router) registerUserRoutes() {
 	group := router.engine.Group(router.globalPrefix)
 
@@ -31,16 +36,23 @@ func (router router) registerUserRoutes() {
 func (router router) CreateUserHandler(c *echo.Context) error {
 	name := c.FormValue("name")
 	_, err := router.service.Create(c.Request().Context(), name)
-	if err != nil {
+	if domain.IsValidationError(err) {
+		// A domain sentinel's own text is written by us and safe to show.
 		return c.String(http.StatusUnprocessableEntity, err.Error())
+	}
+	if err != nil {
+		return router.fail(c, "create user", err)
 	}
 	return c.NoContent(http.StatusCreated)
 }
 
 func (router *router) DeleteUserHandler(c *echo.Context) error {
-	_, err := router.service.Delete(c.Request().Context(), c.Param("id"))
+	rowsAffected, err := router.service.Delete(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return c.String(http.StatusNotFound, err.Error())
+		return router.fail(c, "delete user", err)
+	}
+	if rowsAffected == 0 {
+		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }
@@ -55,12 +67,12 @@ func (router *router) IndexHandler(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "invalid pagination cursor")
 	}
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		return router.fail(c, "list users", err)
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		return router.fail(c, "load page template", err)
 	}
 
 	return tmpl.Execute(c.Response(), result)
@@ -68,13 +80,16 @@ func (router *router) IndexHandler(c *echo.Context) error {
 
 func (router *router) ShowUserHandler(c *echo.Context) error {
 	result, err := router.service.Show(c.Request().Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.String(http.StatusNotFound, "user not found")
+	}
 	if err != nil {
-		return c.String(http.StatusNotFound, err.Error())
+		return router.fail(c, "fetch user", err)
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
-		return c.String(http.StatusInternalServerError, err.Error())
+		return router.fail(c, "load page template", err)
 	}
 
 	return tmpl.Execute(c.Response(), result)
@@ -82,9 +97,15 @@ func (router *router) ShowUserHandler(c *echo.Context) error {
 
 func (router *router) UpdateUserHandler(c *echo.Context) error {
 	name := c.FormValue("name")
-	_, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
+	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
+	if domain.IsValidationError(err) {
+		return c.String(http.StatusUnprocessableEntity, err.Error())
+	}
 	if err != nil {
-		return c.String(http.StatusNotFound, err.Error())
+		return router.fail(c, "update user", err)
+	}
+	if rowsAffected == 0 {
+		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }

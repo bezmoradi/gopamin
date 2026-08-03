@@ -2,11 +2,23 @@ package api
 
 type ErrorMessageType string
 
+// The stable, coarse label a client branches on. The specific reason — when it
+// is safe to disclose — travels in Response.Message instead. Nothing derived
+// from a driver, query, or connection string appears in either field: a failure
+// the client cannot act on is always the one opaque DatabaseOperationFailure,
+// so an outage can't leak credentials or topology to whoever is holding the
+// connection open.
 const (
-	NotFoundError             ErrorMessageType = "Not found"
-	RequiredField             ErrorMessageType = "Required field"
-	FailedToReadRequestBody   ErrorMessageType = "Failed to read request body"
-	FailedToEncodeBodyPayload ErrorMessageType = "Failed to encode body payload"
-	DatabaseOperationFailure  ErrorMessageType = "Database operation failure"
-	InvalidCursor             ErrorMessageType = "Invalid pagination cursor"
+	NotFoundError            ErrorMessageType = "Not found"
+	ValidationFailure        ErrorMessageType = "Validation failed"
+	FailedToReadRequestBody  ErrorMessageType = "Failed to read request body"
+	DatabaseOperationFailure ErrorMessageType = "Database operation failure"
+	InvalidCursor            ErrorMessageType = "Invalid pagination cursor"
+{{- if .PublishesEvents}}
+	// EventPublishFailure distinguishes "the write landed but its event didn't"
+	// from a datastore fault. Both are 500s, but they point at different
+	// subsystems — and on this one the row IS committed, so a client retry
+	// duplicates it rather than completing it.
+	EventPublishFailure ErrorMessageType = "Event publish failure"
+{{- end}}
 )

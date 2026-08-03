@@ -12,6 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// internalFailure is what a server-side fault tells the browser. The underlying
+// error is deliberately never echoed: it can carry datastore credentials, host
+// names, and query text. Log it if you need it; do not render it.
+const internalFailure = "internal server error"
+
 func (router *router) registerUserRoutes() {
 	r := router.engine.Group(router.globalPrefix)
 
@@ -40,36 +45,40 @@ func (router router) IndexHandler(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		router.fail(c, "list users", err)
 		return
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		router.fail(c, "load page template", err)
 		return
 	}
 
 	if err := tmpl.Execute(c.Writer, result); err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		router.fail(c, "render page", err)
 	}
 }
 
 func (router router) ShowUserHandler(c *gin.Context) {
 	result, err := router.service.Show(c.Request.Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		c.String(http.StatusNotFound, "user not found")
+		return
+	}
 	if err != nil {
-		c.String(http.StatusNotFound, err.Error())
+		router.fail(c, "fetch user", err)
 		return
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		router.fail(c, "load page template", err)
 		return
 	}
 
 	if err := tmpl.Execute(c.Writer, result); err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		router.fail(c, "render page", err)
 	}
 }
 
@@ -79,13 +88,18 @@ func (router router) CreateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
-		c.String(http.StatusBadRequest, err.Error())
+		c.String(http.StatusBadRequest, "malformed form body")
 		return
 	}
 
 	_, err := router.service.Create(c.Request.Context(), form.Name)
-	if err != nil {
+	if domain.IsValidationError(err) {
+		// A domain sentinel's own text is written by us and safe to show.
 		c.String(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err != nil {
+		router.fail(c, "create user", err)
 		return
 	}
 
@@ -98,13 +112,21 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
-		c.String(http.StatusBadRequest, err.Error())
+		c.String(http.StatusBadRequest, "malformed form body")
 		return
 	}
 
-	_, err := router.service.Update(c.Request.Context(), c.Param("id"), form.Name)
+	rowsAffected, err := router.service.Update(c.Request.Context(), c.Param("id"), form.Name)
+	if domain.IsValidationError(err) {
+		c.String(http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	if err != nil {
-		c.String(http.StatusNotFound, err.Error())
+		router.fail(c, "update user", err)
+		return
+	}
+	if rowsAffected == 0 {
+		c.String(http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -112,9 +134,13 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 }
 
 func (router router) DeleteUserHandler(c *gin.Context) {
-	_, err := router.service.Delete(c.Request.Context(), c.Param("id"))
+	rowsAffected, err := router.service.Delete(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		c.String(http.StatusNotFound, err.Error())
+		router.fail(c, "delete user", err)
+		return
+	}
+	if rowsAffected == 0 {
+		c.String(http.StatusNotFound, "user not found")
 		return
 	}
 

@@ -55,7 +55,7 @@ paths:
           description: Missing or invalid bearer token.
 {{- end}}
         '500':
-          description: Datastore failure.
+          description: Datastore failure{{- if .PublishesEvents}}, or `Event publish failure` when the write landed but its event did not reach the broker (the row is committed; a retry duplicates it){{- end}}.
           content:
             application/json:
               schema:
@@ -97,7 +97,7 @@ paths:
           description: Missing or invalid bearer token.
 {{- end}}
         '500':
-          description: Datastore failure.
+          description: Datastore failure{{- if .PublishesEvents}}, or `Event publish failure` when the write landed but its event did not reach the broker (the row is committed; a retry duplicates it){{- end}}.
           content:
             application/json:
               schema:
@@ -134,7 +134,7 @@ paths:
           description: Missing or invalid bearer token.
 {{- end}}
         '500':
-          description: Datastore failure.
+          description: Datastore failure{{- if .PublishesEvents}}, or `Event publish failure` when the write landed but its event did not reach the broker (the row is committed; a retry duplicates it){{- end}}.
           content:
             application/json:
               schema:
@@ -182,7 +182,7 @@ paths:
           description: Missing or invalid bearer token.
 {{- end}}
         '500':
-          description: Datastore failure.
+          description: Datastore failure{{- if .PublishesEvents}}, or `Event publish failure` when the write landed but its event did not reach the broker (the row is committed; a retry duplicates it){{- end}}.
           content:
             application/json:
               schema:
@@ -212,7 +212,7 @@ paths:
           description: Missing or invalid bearer token.
 {{- end}}
         '500':
-          description: Datastore failure.
+          description: Datastore failure{{- if .PublishesEvents}}, or `Event publish failure` when the write landed but its event did not reach the broker (the row is committed; a retry duplicates it){{- end}}.
           content:
             application/json:
               schema:

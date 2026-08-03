@@ -12,6 +12,11 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
+// internalFailure is what a server-side fault tells the browser. The underlying
+// error is deliberately never echoed: it can carry datastore credentials, host
+// names, and query text. Log it if you need it; do not render it.
+const internalFailure = "internal server error"
+
 func (router router) registerUserRoutes() {
 	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix, router.IndexHandler)
 	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix+"/:id", router.ShowUserHandler)
@@ -25,15 +30,20 @@ func (router router) registerUserRoutes() {
 func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "malformed form body", http.StatusBadRequest)
 		return
 	}
 
 	name := r.Form.Get("name")
 
 	_, err = router.service.Create(r.Context(), name)
-	if err != nil {
+	if domain.IsValidationError(err) {
+		// A domain sentinel's own text is written by us and safe to show.
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err != nil {
+		router.fail(w, "create user", err)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -41,9 +51,13 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(r.Context())
-	_, err := router.service.Delete(r.Context(), params.ByName("id"))
+	rowsAffected, err := router.service.Delete(r.Context(), params.ByName("id"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		router.fail(w, "delete user", err)
+		return
+	}
+	if rowsAffected == 0 {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -60,19 +74,19 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		router.fail(w, "list users", err)
 		return
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		router.fail(w, "load page template", err)
 		return
 	}
 
 	err = tmpl.Execute(w, result)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		router.fail(w, "render page", err)
 		return
 	}
 }
@@ -80,20 +94,24 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(r.Context())
 	result, err := router.service.Show(r.Context(), params.ByName("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		router.fail(w, "fetch user", err)
 		return
 	}
 
 	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		router.fail(w, "load page template", err)
 		return
 	}
 
 	err = tmpl.Execute(w, result)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		router.fail(w, "render page", err)
 		return
 	}
 }
@@ -102,15 +120,23 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(r.Context())
 	err := r.ParseForm()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "malformed form body", http.StatusBadRequest)
 		return
 	}
 
 	name := r.Form.Get("name")
 
-	_, err = router.service.Update(r.Context(), params.ByName("id"), name)
+	rowsAffected, err := router.service.Update(r.Context(), params.ByName("id"), name)
+	if domain.IsValidationError(err) {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		router.fail(w, "update user", err)
+		return
+	}
+	if rowsAffected == 0 {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

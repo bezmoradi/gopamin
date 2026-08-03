@@ -30,19 +30,18 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToEncodeBodyPayload})
+		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToReadRequestBody})
 		return
 	}
 
 	result, err := router.service.Create(r.Context(), body.Name)
 	if domain.IsValidationError(err) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.RequiredField})
+		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.ValidationFailure})
 		return
 	}
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(w, "create user", err)
 		return
 	}
 
@@ -56,8 +55,7 @@ func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	rowsAffected, err := router.service.Delete(r.Context(), id)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(w, "delete user", err)
 		return
 	}
 
@@ -82,8 +80,7 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(w, "list users", err)
 		return
 	}
 
@@ -104,8 +101,7 @@ func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(w, "fetch user", err)
 		return
 	}
 
@@ -120,19 +116,18 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToEncodeBodyPayload})
+		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToReadRequestBody})
 		return
 	}
 
 	rowsAffected, err := router.service.Update(r.Context(), chi.URLParam(r, "id"), body.Name)
 	if domain.IsValidationError(err) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.RequiredField})
+		_ = json.NewEncoder(w).Encode(api.Response{Message: err.Error(), Error: api.ValidationFailure})
 		return
 	}
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(w, "update user", err)
 		return
 	}
 	if rowsAffected == 0 {

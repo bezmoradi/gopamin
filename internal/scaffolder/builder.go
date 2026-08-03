@@ -24,9 +24,13 @@ type databaseRecipe struct {
 	packages      []string
 }
 
-// usesBrokerPublisher reports whether the project's user service should publish
-// events on writes: true for an api/web-app that selected a broker.
-func usesBrokerPublisher(p *Project) bool {
+// PublishesEvents reports whether the project's user service should publish
+// events on writes: true for an api/web-app that selected a broker. It is an
+// exported method on Project rather than a package function so the user service
+// template can branch on the very same predicate the builder uses — the
+// publisher plumbing and the EventPublisher port it needs can never disagree.
+// (A worker sets Broker too, but consumes rather than publishes.)
+func (p *Project) PublishesEvents() bool {
 	return (p.ProjectType == "api" || p.ProjectType == "web-app") && p.Broker != ""
 }
 
@@ -128,13 +132,12 @@ func buildOpenAPI(p *Project) {
 // callers can request the in-memory "mock" without mutating the Project.
 func buildDatabase(p *Project, database string) {
 	for _, key := range coreRepositoryFiles {
-		// An api/web-app with a broker replaces the plain user service with the
-		// publisher-aware variant (and its EventPublisher port) in place, so the
-		// base service file is never written and then overwritten.
-		if key == "user-service" && usesBrokerPublisher(p) {
+		// The user service is one template that grows publisher plumbing when
+		// PublishesEvents() is true; all that's needed here is the outbound port
+		// it depends on. (It was once a second, copy-pasted service template —
+		// which promptly drifted and lost a validation rule.)
+		if key == "user-service" && p.PublishesEvents() {
 			fileGenerator([]string{"event-publisher-interface"}, p)
-			fileGenerator([]string{"user-service-broker"}, p)
-			continue
 		}
 		fileGenerator([]string{key}, p)
 	}

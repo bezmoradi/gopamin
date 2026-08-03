@@ -53,7 +53,6 @@ func buildRegistry() map[string]func() ([]byte, string) {
 		"user-repository-interface": common.UserRepositoryInterfaceTemplate,
 		"user-service-interface":    common.UserServiceInterfaceTemplate,
 		"user-service":              common.UserServiceTemplate,
-		"user-service-broker":       common.UserServiceBrokerTemplate,
 		"user-service-test":         common.UserServiceTestTemplate,
 		"router-interface":          common.RouterInterfaceTemplate,
 		"logger-interface":          common.LoggerInterfaceTemplate,

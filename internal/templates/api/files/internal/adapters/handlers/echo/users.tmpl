@@ -27,15 +27,15 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
-		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
+		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
 	}
 
 	result, err := router.service.Create(c.Request().Context(), body.Name)
 	if domain.IsValidationError(err) {
-		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		return router.fail(c, "create user", err)
 	}
 
 	return c.JSON(http.StatusCreated, api.Response{Message: "Created user successfully", Data: result})
@@ -46,7 +46,7 @@ func (router *router) DeleteUserHandler(c *echo.Context) error {
 
 	rowsAffected, err := router.service.Delete(c.Request().Context(), id)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		return router.fail(c, "delete user", err)
 	}
 
 	if rowsAffected == 0 {
@@ -66,7 +66,7 @@ func (router *router) IndexHandler(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, api.Response{Error: api.InvalidCursor})
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		return router.fail(c, "list users", err)
 	}
 
 	return c.JSON(http.StatusOK, api.Response{
@@ -82,7 +82,7 @@ func (router *router) ShowUserHandler(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		return router.fail(c, "fetch user", err)
 	}
 
 	return c.JSON(http.StatusOK, api.Response{Message: "Fetched user successfully", Data: api.NewUser(result)})
@@ -93,15 +93,15 @@ func (router *router) UpdateUserHandler(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
-		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
+		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
 	}
 
 	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)
 	if domain.IsValidationError(err) {
-		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		return router.fail(c, "update user", err)
 	}
 	if rowsAffected == 0 {
 		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})

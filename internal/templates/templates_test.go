@@ -27,6 +27,13 @@ type sampleProject struct {
 	OpenAPI       string
 }
 
+// PublishesEvents mirrors (*scaffolder.Project).PublishesEvents so templates that
+// branch on it render here too. It cannot delegate to the real one: scaffolder
+// imports this package, so importing it back would be a cycle.
+func (p sampleProject) PublishesEvents() bool {
+	return (p.ProjectType == "api" || p.ProjectType == "web-app") && p.Broker != ""
+}
+
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell
 // out): every template in the registry must parse and execute, and every
 // template that renders to a .go file must produce syntactically valid Go. This
@@ -133,15 +140,15 @@ func TestArchLintTemplateRendersValidConfig(t *testing.T) {
 	}
 
 	shapes := []sampleProject{
-		{ProjectType: "api", Platform: "echo", Broker: "kafka", Database: "postgres"}, // all components
-		{ProjectType: "api", Platform: "graphql", Database: "mysql"},                  // no api-response, no brokers
-		{ProjectType: "api", Platform: "chi"},                                         // no db (mock), no brokers
-		{ProjectType: "web-app", Platform: "gin", Database: "mongodb"},                // web, no api-response
-		{ProjectType: "web-app", Platform: "echo", Broker: "redis"},                   // web + brokers, no db
-		{ProjectType: "worker", Broker: "rabbitmq", Database: "postgres"},             // core + brokers, no handlers
-		{ProjectType: "worker", Broker: "kafka"},                                      // no services/repositories
-		{ProjectType: "hello-world", Database: "sqlite"},                              // db-only core
-		{ProjectType: "hello-world"},                                                  // plain: no domain/services
+		{ProjectType: "api", Platform: "echo", Broker: "kafka", Database: "postgres"},       // all components
+		{ProjectType: "api", Platform: "graphql", Database: "mysql"},                        // no api-response, no brokers
+		{ProjectType: "api", Platform: "chi"},                                               // no db (mock), no brokers
+		{ProjectType: "web-app", Platform: "gin", Database: "mongodb"},                      // web, no api-response
+		{ProjectType: "web-app", Platform: "echo", Broker: "redis"},                         // web + brokers, no db
+		{ProjectType: "worker", Broker: "rabbitmq", Database: "postgres"},                   // core + brokers, no handlers
+		{ProjectType: "worker", Broker: "kafka"},                                            // no services/repositories
+		{ProjectType: "hello-world", Database: "sqlite"},                                    // db-only core
+		{ProjectType: "hello-world"},                                                        // plain: no domain/services
 		{ProjectType: "api", Platform: "echo", Database: "postgres", Observability: "otel"}, // observability: component + cmd/cmd-server edges
 		{ProjectType: "worker", Broker: "kafka", Observability: "otel"},                     // observability on a worker (cmd edge, no cmd-server)
 	}

@@ -105,17 +105,25 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 		return 0, nil
 	}
 
-	err := c.session.Query(
+	// IF EXISTS turns the write into a lightweight transaction. Without it a
+	// Cassandra UPDATE is an upsert: updating an id that was never inserted
+	// silently creates the row and reports success, so a caller could never
+	// see "no such user". The CAS [applied] flag is the honest rows-affected
+	// answer; the LWT round-trip is the price of it.
+	applied, err := c.session.Query(
 		fmt.Sprintf(
-			"UPDATE %v SET name = ? WHERE id = ?",
+			"UPDATE %v SET name = ? WHERE id = ? IF EXISTS",
 			tableName,
 		),
 		newName,
 		id,
-	).ExecContext(ctx)
+	).MapScanCASContext(ctx, map[string]interface{}{})
 
 	if err != nil {
 		return 0, err
+	}
+	if !applied {
+		return 0, nil
 	}
 
 	return 1, nil
@@ -127,16 +135,22 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 		return 0, nil
 	}
 
-	err := c.session.Query(
+	// IF EXISTS for the same reason as Update: a bare Cassandra DELETE always
+	// "succeeds" (it just writes a tombstone), so a missing row could never
+	// surface as not-found.
+	applied, err := c.session.Query(
 		fmt.Sprintf(
-			"DELETE FROM %v WHERE id = ?",
+			"DELETE FROM %v WHERE id = ? IF EXISTS",
 			tableName,
 		),
 		id,
-	).ExecContext(ctx)
+	).MapScanCASContext(ctx, map[string]interface{}{})
 
 	if err != nil {
 		return 0, err
+	}
+	if !applied {
+		return 0, nil
 	}
 
 	return 1, nil

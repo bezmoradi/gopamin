@@ -3,12 +3,35 @@ package graphql
 import (
 	"errors"
 
+	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/user/ports"
 
 	"github.com/graphql-go/graphql"
 )
 
-func New(service ports.UserServiceInterface) graphql.Schema {
+// errInternal is what a server-side fault tells the client. The underlying
+// error is deliberately never surfaced: it can carry datastore credentials,
+// host names, and query text. It is logged instead — see sanitize.
+var errInternal = errors.New("internal server error")
+
+func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schema {
+	// sanitize decides what the response's errors array may show: a domain
+	// sentinel's text is written by us and safe to echo; anything else — a driver
+	// or broker failure — is logged for an operator and collapses to errInternal
+	// for the client. It is the same policy the REST handlers apply with status
+	// codes, restated for a transport whose failures all travel in-band at HTTP
+	// 200. Every resolver returns its errors through here.
+	sanitize := func(operation string, err error) error {
+		if domain.IsValidationError(err) ||
+			errors.Is(err, domain.ErrUserNotFound) ||
+			errors.Is(err, domain.ErrInvalidCursor) {
+			return err
+		}
+		logger.Error(operation+" failed", "error", err)
+		return errInternal
+	}
+
 	userType := graphql.NewObject(
 		graphql.ObjectConfig{
 			Name: "User",
@@ -56,7 +79,13 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 						if !ok {
 							return nil, errors.New("id argument is required and must be a string")
 						}
-						return service.Show(p.Context, id)
+						// Return nil (not a zero-value User) with the error, so the
+						// data field renders as null instead of an empty object.
+						user, err := service.Show(p.Context, id)
+						if err != nil {
+							return nil, sanitize("fetch user", err)
+						}
+						return user, nil
 					},
 				},
 				"users": &graphql.Field{
@@ -76,7 +105,7 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 
 						page, err := service.Index(params.Context, limit, cursor)
 						if err != nil {
-							return nil, err
+							return nil, sanitize("list users", err)
 						}
 
 						return map[string]interface{}{
@@ -104,7 +133,11 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					if !ok {
 						return nil, errors.New("name argument is required and must be a string")
 					}
-					return service.Create(params.Context, name)
+					id, err := service.Create(params.Context, name)
+					if err != nil {
+						return nil, sanitize("create user", err)
+					}
+					return id, nil
 				},
 			},
 			"update": &graphql.Field{
@@ -124,7 +157,11 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 						return nil, errors.New("id argument is required and must be a string")
 					}
 					name, _ := params.Args["name"].(string)
-					return service.Update(params.Context, id, name)
+					rowsAffected, err := service.Update(params.Context, id, name)
+					if err != nil {
+						return nil, sanitize("update user", err)
+					}
+					return rowsAffected, nil
 				},
 			},
 			"delete": &graphql.Field{
@@ -140,7 +177,11 @@ func New(service ports.UserServiceInterface) graphql.Schema {
 					if !ok {
 						return nil, errors.New("id argument is required and must be a string")
 					}
-					return service.Delete(params.Context, id)
+					rowsAffected, err := service.Delete(params.Context, id)
+					if err != nil {
+						return nil, sanitize("delete user", err)
+					}
+					return rowsAffected, nil
 				},
 			},
 		},

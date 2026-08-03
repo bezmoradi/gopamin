@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
-	"unicode/utf8"
+{{- if .PublishesEvents}}
+	"fmt"
+{{- end}}
 
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/user/ports"
@@ -10,12 +12,22 @@ import (
 
 type userService struct {
 	repo ports.UserRepositoryInterface
+{{- if .PublishesEvents}}
+	publisher ports.EventPublisher
+{{- end}}
 }
 
 func NewUserService(repo ports.UserRepositoryInterface) *userService {
 	return &userService{repo: repo}
 }
-
+{{if .PublishesEvents}}
+// WithPublisher attaches an event publisher so that writes emit domain events.
+// It is optional: a service constructed without one simply skips publishing.
+func (us *userService) WithPublisher(publisher ports.EventPublisher) *userService {
+	us.publisher = publisher
+	return us
+}
+{{end}}
 func (us *userService) Index(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Clamp here so the guardrail is one rule for every caller: a missing or
 	// non-positive limit falls back to the default, and no caller can ask for
@@ -35,22 +47,35 @@ func (us *userService) Show(ctx context.Context, id string) (domain.User, error)
 }
 
 func (us *userService) Create(ctx context.Context, name string) (string, error) {
-	if name == "" {
-		return "", domain.ErrNameRequired
-	}
-	if utf8.RuneCountInString(name) > domain.MaxNameLength {
-		return "", domain.ErrNameTooLong
+	// domain.ValidateName owns every name rule; see domain/user.go.
+	if err := domain.ValidateName(name); err != nil {
+		return "", err
 	}
 
-	return us.repo.Insert(ctx, name)
+	id, err := us.repo.Insert(ctx, name)
+	if err != nil {
+		return "", err
+	}
+{{- if .PublishesEvents}}
+
+	if us.publisher != nil {
+		if err := us.publisher.Produce(ctx, []byte(name)); err != nil {
+			// The row above is already committed and is deliberately not undone
+			// here — a compensating delete can fail or be interrupted too, so it
+			// trades one inconsistency for another. Tag the error instead, so the
+			// caller can report which half failed. Making both halves atomic
+			// needs an outbox table written in the insert's own transaction.
+			return "", fmt.Errorf("%w: %w", domain.ErrEventPublishFailed, err)
+		}
+	}
+{{- end}}
+
+	return id, nil
 }
 
 func (us *userService) Update(ctx context.Context, id string, newName string) (int64, error) {
-	if newName == "" {
-		return 0, domain.ErrNameRequired
-	}
-	if utf8.RuneCountInString(newName) > domain.MaxNameLength {
-		return 0, domain.ErrNameTooLong
+	if err := domain.ValidateName(newName); err != nil {
+		return 0, err
 	}
 
 	return us.repo.Update(ctx, id, newName)

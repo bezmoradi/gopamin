@@ -13,6 +13,7 @@ func TestIsValidationError(t *testing.T) {
 	}{
 		{name: "name_required", err: ErrNameRequired, want: true},
 		{name: "name_too_long", err: ErrNameTooLong, want: true},
+		{name: "name_invalid", err: ErrNameInvalid, want: true},
 		{name: "wrapped_validation", err: fmt.Errorf("create user: %w", ErrNameTooLong), want: true},
 		{name: "not_found_is_not_validation", err: ErrUserNotFound, want: false},
 		{name: "nil_is_not_validation", err: nil, want: false},

@@ -60,7 +60,7 @@ func main() {
 {{- else}}
 	service := services.NewUserService(db)
 {{- end}}
-	handlers := {{.Platform}}.NewRouter(service)
+	handlers := {{.Platform}}.NewRouter(service, logger)
 	server.Serve(handlers, logger)
 {{- if .Broker}}
 	// Serve returns only once a signal drained the HTTP server; that same signal

@@ -30,17 +30,17 @@ func (router *router) CreateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
+		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
 		return
 	}
 
 	result, err := router.service.Create(c.Request.Context(), body.Name)
 	if domain.IsValidationError(err) {
-		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(c, "create user", err)
 		return
 	}
 
@@ -52,7 +52,7 @@ func (router *router) DeleteUserHandler(c *gin.Context) {
 
 	rowsAffected, err := router.service.Delete(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(c, "delete user", err)
 		return
 	}
 
@@ -73,7 +73,7 @@ func (router *router) IndexHandler(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(c, "list users", err)
 		return
 	}
 
@@ -91,7 +91,7 @@ func (router *router) ShowUserHandler(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(c, "fetch user", err)
 		return
 	}
 
@@ -103,17 +103,17 @@ func (router *router) UpdateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToEncodeBodyPayload})
+		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
 		return
 	}
 
 	rowsAffected, err := router.service.Update(c.Request.Context(), c.Param("id"), body.Name)
 	if domain.IsValidationError(err) {
-		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.RequiredField})
+		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Response{Error: api.DatabaseOperationFailure})
+		router.fail(c, "update user", err)
 		return
 	}
 	if rowsAffected == 0 {

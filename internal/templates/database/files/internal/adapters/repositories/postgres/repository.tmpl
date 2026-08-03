@@ -16,6 +16,22 @@ import (
 
 const tableName = "users"
 
+// parseId converts a client-supplied id to the width the id column actually is:
+// `id SERIAL` is int4 (see migrations/), not a Go int. strconv.Atoi parses 64
+// bits, so it waves through every value in (2^31-1, 2^63-1) — those reach
+// Postgres, overflow int4, and come back as SQLSTATE 22003, i.e. a 500 where
+// the honest answer is "no such row". Parse at the column's real width and an
+// out-of-range id is simply a miss. Widen the bit size here if you widen the
+// column to bigint.
+func parseId(id string) (int32, bool) {
+	parsed, err := strconv.ParseInt(id, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+
+	return int32(parsed), true
+}
+
 type connection struct {
 	db *pgxpool.Pool
 	logger shared.Logger
@@ -69,8 +85,9 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 }
 
 func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
-	// The id column is an integer; a non-numeric id can never match a row.
-	if _, err := strconv.Atoi(id); err != nil {
+	// An id the column can't hold can never match a row: no rows affected.
+	numericId, ok := parseId(id)
+	if !ok {
 		return 0, nil
 	}
 
@@ -81,7 +98,7 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 			tableName,
 		),
 		newName,
-		id,
+		numericId,
 	)
 	if err != nil {
 		return 0, err
@@ -91,8 +108,9 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 }
 
 func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
-	// The id column is an integer; a non-numeric id can never match a row.
-	if _, err := strconv.Atoi(id); err != nil {
+	// An id the column can't hold can never match a row: no rows affected.
+	numericId, ok := parseId(id)
+	if !ok {
 		return 0, nil
 	}
 
@@ -102,7 +120,7 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 			"DELETE FROM %v WHERE id = $1",
 			tableName,
 		),
-		id,
+		numericId,
 	)
 	if err != nil {
 		return 0, err
@@ -112,8 +130,9 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 }
 
 func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
-	// The id column is an integer; a non-numeric id can never match a row.
-	if _, err := strconv.Atoi(id); err != nil {
+	// An id the column can't hold can never match a row.
+	numericId, ok := parseId(id)
+	if !ok {
 		return domain.User{}, domain.ErrUserNotFound
 	}
 
@@ -125,7 +144,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 			"SELECT id, name FROM %v WHERE id = $1",
 			tableName,
 		),
-		id,
+		numericId,
 	).Scan(&user.Id, &user.Name)
 
 	if err != nil {
@@ -148,16 +167,19 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	// Keyset pagination: the cursor is the last id from the previous page,
 	// base64-encoded. Ordering by the integer primary key gives a stable,
 	// gap-free walk; id > 0 selects everything for the first (cursor-less) page.
-	afterId := 0
+	var afterId int32
 	if cursor != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
 		if err != nil {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		afterId, err = strconv.Atoi(string(decoded))
-		if err != nil {
+		// A cursor outside the id column's range was never one we issued, so
+		// it's a malformed token (400), not something to hand to the driver.
+		parsed, ok := parseId(string(decoded))
+		if !ok {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
+		afterId = parsed
 	}
 
 	// Fetch one extra row to learn whether a further page exists.

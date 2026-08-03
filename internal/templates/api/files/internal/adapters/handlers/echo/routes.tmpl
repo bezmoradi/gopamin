@@ -1,6 +1,14 @@
 package echo
 
 import (
+{{- if .PublishesEvents}}
+	"errors"
+{{- end}}
+
+	"{{.Name}}/internal/adapters/api"
+{{- if .PublishesEvents}}
+	"{{.Name}}/internal/core/user/domain"
+{{- end}}
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
@@ -12,13 +20,15 @@ type router struct {
 	engine       *echo.Echo
 	globalPrefix string
 	service      ports.UserServiceInterface
+	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface) shared.RouterInterface {
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
 	return &router{
 		engine:       echo.New(),
 		globalPrefix: "/api/v1",
 		service:      service,
+		logger:       logger,
 	}
 }
 
@@ -26,4 +36,26 @@ func (router router) Register() http.Handler {
 	router.registerUserRoutes()
 
 	return router.engine
+}
+
+// fail logs the underlying cause and writes the opaque response the client sees.
+// The two live in one place so they cannot drift apart: every internal failure is
+// recorded for an operator exactly once, and the client is still told nothing that
+// could describe the datastore. Never write a 500 without going through here.
+func (router router) fail(c *echo.Context, operation string, err error) error {
+	router.logger.Error(operation+" failed", "error", err)
+	return c.JSON(http.StatusInternalServerError, api.Response{Error: failureLabel(err)})
+}
+
+// failureLabel names which subsystem failed. Both cases are 500s, but a broker
+// failure reported as a datastore failure sends whoever is on call to a healthy
+// database. The underlying error is still only in the log, never the response.
+func failureLabel(err error) api.ErrorMessageType {
+{{- if .PublishesEvents}}
+	if errors.Is(err, domain.ErrEventPublishFailed) {
+		return api.EventPublishFailure
+	}
+
+{{- end}}
+	return api.DatabaseOperationFailure
 }

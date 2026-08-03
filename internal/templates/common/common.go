@@ -126,16 +126,6 @@ func EventPublisherInterfaceTemplate() ([]byte, string) {
 	return eventPublisherInterface, "internal/core/user/ports/event-publisher.interface.go"
 }
 
-//go:embed files/internal/core/user/services/user.service-broker.tmpl
-var userServiceBroker []byte
-
-// UserServiceBrokerTemplate renders to the same path as UserServiceTemplate, so
-// when a broker is selected the builder generates it after buildDatabase to
-// replace the plain user service with the publisher-aware variant.
-func UserServiceBrokerTemplate() ([]byte, string) {
-	return userServiceBroker, "internal/core/user/services/user.service.go"
-}
-
 //go:embed files/readme/readme.tmpl
 var readme []byte
 

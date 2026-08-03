@@ -10,17 +10,28 @@ type router struct {
 	engine       *http.ServeMux
 	globalPrefix string
 	service      ports.UserServiceInterface
+	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface) shared.RouterInterface {
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
 	return &router{
 		engine:       http.NewServeMux(),
 		globalPrefix: "/users",
 		service:      service,
+		logger:       logger,
 	}
 }
 
 func (router router) Register() http.Handler {
 	router.registerUserRoutes()
 	return router.engine
+}
+
+// fail logs the underlying cause and writes the opaque response the client sees.
+// The two live in one place so they cannot drift apart: every internal failure is
+// recorded for an operator exactly once, and the client is still told nothing that
+// could describe the datastore. Never write a 500 without going through here.
+func (router router) fail(w http.ResponseWriter, operation string, err error) {
+	router.logger.Error(operation+" failed", "error", err)
+	http.Error(w, internalFailure, http.StatusInternalServerError)
 }
