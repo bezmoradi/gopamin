@@ -132,4 +132,4 @@ This project is maintained by [Bez Moradi](https://github.com/bezmoradi)
 
 ## License
 
-Gopamin is licensed under [MIT](https://github.com/bezmoradi/gopamin/blob/master/LICENSE)
+Gopamin is licensed under [MIT](https://github.com/bezmoradi/gopamin/blob/main/LICENSE)
