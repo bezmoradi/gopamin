@@ -9,6 +9,7 @@ import (
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/shared"
 	"os"
+	"slices"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -77,10 +78,8 @@ func (c *connection) CreateTable() error {
 	if err != nil {
 		return err
 	}
-	for _, n := range tables.TableNames {
-		if n == tableName {
-			return nil
-		}
+	if slices.Contains(tables.TableNames, tableName) {
+		return nil
 	}
 
 	_, err = c.db.CreateTable(context.TODO(), &dynamodb.CreateTableInput{
@@ -147,8 +146,7 @@ func (c *connection) Update(ctx context.Context, id, updatedName string) (int64,
 	if err != nil {
 		// The conditional check failing means the item does not exist; that is a
 		// no-op (0 rows affected), not a server error.
-		var conditionFailed *types.ConditionalCheckFailedException
-		if errors.As(err, &conditionFailed) {
+		if _, ok := errors.AsType[*types.ConditionalCheckFailedException](err); ok {
 			return 0, nil
 		}
 		return 0, err

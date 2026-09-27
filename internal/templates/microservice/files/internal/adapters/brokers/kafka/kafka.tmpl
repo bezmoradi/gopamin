@@ -92,6 +92,9 @@ func (k *kafkaBroker) Consume(ctx context.Context, handler func(value []byte)) e
 	for {
 		m, err := k.reader.ReadMessage(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return err
 		}
 		handler(m.Value)

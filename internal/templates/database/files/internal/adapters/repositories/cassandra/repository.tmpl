@@ -117,7 +117,7 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 		),
 		newName,
 		id,
-	).MapScanCASContext(ctx, map[string]interface{}{})
+	).MapScanCASContext(ctx, map[string]any{})
 
 	if err != nil {
 		return 0, err
@@ -144,7 +144,7 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 			tableName,
 		),
 		id,
-	).MapScanCASContext(ctx, map[string]interface{}{})
+	).MapScanCASContext(ctx, map[string]any{})
 
 	if err != nil {
 		return 0, err

@@ -51,7 +51,7 @@ func TestAllTemplatesRenderAndParse(t *testing.T) {
 		ProjectType: "api",
 		Logger:      "zap",
 		Path:        "/tmp/app",
-		GoVersion:   "1.26.0",
+		GoVersion:   "1.27.1",
 	}
 
 	for key, gen := range Mapper() {

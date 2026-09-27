@@ -74,7 +74,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 							Type: graphql.String,
 						},
 					},
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					Resolve: func(p graphql.ResolveParams) (any, error) {
 						id, ok := p.Args["id"].(string)
 						if !ok {
 							return nil, errors.New("id argument is required and must be a string")
@@ -99,7 +99,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 							Type: graphql.String,
 						},
 					},
-					Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					Resolve: func(params graphql.ResolveParams) (any, error) {
 						limit, _ := params.Args["limit"].(int)
 						cursor, _ := params.Args["cursor"].(string)
 
@@ -108,7 +108,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 							return nil, sanitize("list users", err)
 						}
 
-						return map[string]interface{}{
+						return map[string]any{
 							"items":       page.Items,
 							"next_cursor": page.NextCursor,
 						}, nil
@@ -128,7 +128,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 						Type: graphql.NewNonNull(graphql.String),
 					},
 				},
-				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+				Resolve: func(params graphql.ResolveParams) (any, error) {
 					name, ok := params.Args["name"].(string)
 					if !ok {
 						return nil, errors.New("name argument is required and must be a string")
@@ -151,7 +151,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 						Type: graphql.String,
 					},
 				},
-				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+				Resolve: func(params graphql.ResolveParams) (any, error) {
 					id, ok := params.Args["id"].(string)
 					if !ok {
 						return nil, errors.New("id argument is required and must be a string")
@@ -172,7 +172,7 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 						Type: graphql.NewNonNull(graphql.String),
 					},
 				},
-				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+				Resolve: func(params graphql.ResolveParams) (any, error) {
 					id, ok := params.Args["id"].(string)
 					if !ok {
 						return nil, errors.New("id argument is required and must be a string")

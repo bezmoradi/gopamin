@@ -210,7 +210,7 @@ func executeCommand(name string, args []string, dir string) error {
 // scaffolds, so generated projects target a consistent Go version regardless of
 // the user's local toolchain. Keep it in lockstep with the `go` directive in
 // this repo's go.mod (and the README) whenever the supported Go version is bumped.
-const generatedGoVersion = "1.26.0"
+const generatedGoVersion = "1.27.1"
 
 func initGoMod(projectName string, appDir string) error {
 	if err := executeCommand("go", []string{"mod", "init", projectName}, appDir); err != nil {

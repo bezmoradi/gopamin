@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"{{.Name}}/internal/core/shared"
@@ -16,8 +17,8 @@ import (
 // Chain applies the given middleware to h so that the first one listed is the
 // outermost wrapper (it runs first on the way in and last on the way out).
 func Chain(h http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {
-	for i := len(middleware) - 1; i >= 0; i-- {
-		h = middleware[i](h)
+	for _, m := range slices.Backward(middleware) {
+		h = m(h)
 	}
 	return h
 }

@@ -45,15 +45,13 @@ func main() {
 	// WaitGroup lets main wait for in-flight processing to finish on shutdown,
 	// matching the worker type.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := broker.Consume(ctx, func(value []byte) {
 			logger.Info("event received", "payload", string(value))
 		}); err != nil && ctx.Err() == nil {
 			logger.Error(err.Error())
 		}
-	}()
+	})
 {{- else}}
 	service := services.NewUserService(db)
 {{- end}}

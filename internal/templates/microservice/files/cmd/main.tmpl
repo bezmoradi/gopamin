@@ -70,9 +70,7 @@ func main() {
 	// Consumer side: log every message received off the broker. The WaitGroup lets
 	// main wait for in-flight processing to finish on shutdown before returning.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		consumeErr := broker.Consume(ctx, func(value []byte) {
 {{- if .Observability}}
 			_, span := tracer.Start(ctx, "message.process")
@@ -83,7 +81,7 @@ func main() {
 		if consumeErr != nil && ctx.Err() == nil {
 			logger.Fatal(consumeErr)
 		}
-	}()
+	})
 
 	logger.Info("worker is running; waiting for messages. Press Ctrl+C to stop.")
 	<-ctx.Done()

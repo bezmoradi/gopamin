@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"{{.Name}}/internal/core/shared"
 )
 
@@ -48,11 +49,12 @@ func prepareArgs(message string, logType string, args ...any) string {
 	if len(args)%2 != 0 {
 		args = args[:len(args)-1]
 	}
-	msg := fmt.Sprintf("%s %s", logType, message)
+	var msg strings.Builder
+	fmt.Fprintf(&msg, "%s %s", logType, message)
 	for i := 0; i < len(args); i += 2 {
 		key := args[i]
 		value := args[i+1]
-		msg += fmt.Sprintf(" %s=%v", key, value)
+		fmt.Fprintf(&msg, " %s=%v", key, value)
 	}
-	return msg
+	return msg.String()
 }
