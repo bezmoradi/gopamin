@@ -89,7 +89,11 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		os.Exit(1)
 	}
 
-	buildersMap[p.ProjectType](&p)
+	if err := buildersMap[p.ProjectType](&p); err != nil {
+		fmt.Printf("Error generating project: %v\n", err)
+		_ = os.RemoveAll(projectPath)
+		os.Exit(1)
+	}
 
 	// `go get -u` records every dependency as `// indirect`; run `go mod tidy`
 	// once, after all files and go-gets, so directly-imported modules are promoted

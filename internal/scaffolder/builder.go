@@ -95,42 +95,42 @@ var observabilityPackages = []string{
 // buildObservability emits the OpenTelemetry adapter and the local collector config
 // and fetches the OTel modules. The OTEL_* env block (otel-env) and the compose
 // collector service are handled by the caller's env/compose assembly.
-func buildObservability(p *Project) {
+func buildObservability(p *Project) error {
 	if !hasObservability(p) {
-		return
+		return nil
 	}
 	fileGenerator([]string{"observability"}, p)
 	fileGenerator([]string{"otel-collector"}, p)
-	goGetPackages(p.Path, observabilityPackages)
+	return goGetPackages(p.Path, observabilityPackages)
 }
 
 // buildAuth emits the JWT auth adapter (bearer-validation middleware + demo /login
 // issuer) and fetches golang-jwt. The JWT_*/AUTH_* env block (auth-env) is handled
 // by the caller's env assembly.
-func buildAuth(p *Project) {
+func buildAuth(p *Project) error {
 	if !hasAuth(p) {
-		return
+		return nil
 	}
 	fileGenerator([]string{"auth"}, p)
-	goGetPackages(p.Path, []string{"github.com/golang-jwt/jwt/v5"})
+	return goGetPackages(p.Path, []string{"github.com/golang-jwt/jwt/v5"})
 }
 
 // buildOpenAPI emits the templated OpenAPI document plus the Swagger-UI serving
 // adapter, and fetches the embedded Swagger-UI package. The /openapi.yaml and
 // /swagger routes are mounted by the cmd/server template (guarded on .OpenAPI).
-func buildOpenAPI(p *Project) {
+func buildOpenAPI(p *Project) error {
 	if !hasOpenAPI(p) {
-		return
+		return nil
 	}
 	fileGenerator([]string{"openapi-spec"}, p)
 	fileGenerator([]string{"openapi-serve"}, p)
-	goGetPackages(p.Path, []string{"github.com/swaggest/swgui/v5emb"})
+	return goGetPackages(p.Path, []string{"github.com/swaggest/swgui/v5emb"})
 }
 
 // buildDatabase generates the user repository stack plus the chosen database's
 // adapter. `database` is passed explicitly (rather than read from p.Database) so
 // callers can request the in-memory "mock" without mutating the Project.
-func buildDatabase(p *Project, database string) {
+func buildDatabase(p *Project, database string) error {
 	for _, key := range coreRepositoryFiles {
 		// The user service is one template that grows publisher plumbing when
 		// PublishesEvents() is true; all that's needed here is the outbound port
@@ -154,7 +154,7 @@ func buildDatabase(p *Project, database string) {
 		fileGenerator([]string{"migration-down"}, p)
 	}
 
-	goGetPackages(p.Path, recipe.packages)
+	return goGetPackages(p.Path, recipe.packages)
 }
 
 // loggerRecipe describes what varies between logger adapters.
@@ -163,15 +163,15 @@ type loggerRecipe struct {
 	packages []string
 }
 
-func buildLogger(p *Project) {
+func buildLogger(p *Project) error {
 	recipe := loggerRecipes[p.Logger]
 	fileGenerator([]string{recipe.logger}, p)
 	fileGenerator([]string{"logger-interface"}, p)
-	goGetPackages(p.Path, recipe.packages)
+	return goGetPackages(p.Path, recipe.packages)
 }
 
 // buildersMap dispatches a project type to its build function.
-var buildersMap = map[string]func(p *Project){
+var buildersMap = map[string]func(p *Project) error{
 	"api":         buildAPI,
 	"web-app":     buildWebApp,
 	"worker":      buildWorker,

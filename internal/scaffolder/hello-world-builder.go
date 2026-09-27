@@ -2,7 +2,7 @@ package scaffolder
 
 import "fmt"
 
-func buildHelloWorld(p *Project) {
+func buildHelloWorld(p *Project) error {
 	readme := []string{"readme", p.Logger + "-readme"}
 	makefile := []string{"makefile"}
 	env := []string{"env"}
@@ -14,7 +14,9 @@ func buildHelloWorld(p *Project) {
 		fileGenerator([]string{"hello-world-main-with-db"}, p)
 		readme = append(readme, p.Database+"-readme", "hello-world-readme-with-db")
 		env = append(env, p.Database+"-env")
-		buildDatabase(p, p.Database)
+		if err := buildDatabase(p, p.Database); err != nil {
+			return err
+		}
 	}
 
 	if hasContainerizedBackend(p) {
@@ -24,7 +26,9 @@ func buildHelloWorld(p *Project) {
 		makefile = append(makefile, "migrate-makefile")
 	}
 
-	buildLogger(p)
+	if err := buildLogger(p); err != nil {
+		return err
+	}
 	fileGenerator(env, p)
 	fileGenerator(readme, p)
 	fileGenerator(makefile, p)
@@ -39,4 +43,5 @@ func buildHelloWorld(p *Project) {
 	fileGenerator([]string{"golangci"}, p)
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	return nil
 }

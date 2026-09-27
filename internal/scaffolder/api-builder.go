@@ -42,7 +42,7 @@ var apiRecipes = map[string]apiRecipe{
 	},
 }
 
-func buildAPI(p *Project) {
+func buildAPI(p *Project) error {
 	recipe := apiRecipes[p.Platform]
 	env := []string{"env", "api-env"}
 	readme := []string{"readme", p.Logger + "-readme"}
@@ -75,14 +75,26 @@ func buildAPI(p *Project) {
 		env = append(env, "auth-env")
 	}
 
-	buildDatabase(p, database)
-	buildLogger(p)
-	buildObservability(p)
-	buildAuth(p)
-	buildOpenAPI(p)
+	if err := buildDatabase(p, database); err != nil {
+		return err
+	}
+	if err := buildLogger(p); err != nil {
+		return err
+	}
+	if err := buildObservability(p); err != nil {
+		return err
+	}
+	if err := buildAuth(p); err != nil {
+		return err
+	}
+	if err := buildOpenAPI(p); err != nil {
+		return err
+	}
 	if p.Broker != "" {
 		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
-		goGetPackages(p.Path, workerRecipes[p.Broker])
+		if err := goGetPackages(p.Path, workerRecipes[p.Broker]); err != nil {
+			return err
+		}
 	}
 	fileGenerator(env, p)
 	fileGenerator(readme, p)
@@ -103,7 +115,10 @@ func buildAPI(p *Project) {
 	}
 	fileGenerator([]string{"health-handler"}, p)
 	fileGenerator([]string{"middleware"}, p)
-	goGetPackages(p.Path, recipe.packages)
+	if err := goGetPackages(p.Path, recipe.packages); err != nil {
+		return err
+	}
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	return nil
 }

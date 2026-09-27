@@ -10,16 +10,22 @@ var workerRecipes = map[string][]string{
 	"redis":    {"github.com/redis/go-redis/v9"},
 }
 
-func buildWorker(p *Project) {
+func buildWorker(p *Project) error {
 	broker := p.Broker
 	packages := workerRecipes[broker]
 
-	buildLogger(p)
-	buildObservability(p)
+	if err := buildLogger(p); err != nil {
+		return err
+	}
+	if err := buildObservability(p); err != nil {
+		return err
+	}
 	readme := []string{"readme", p.Logger + "-readme", broker + "-microservice-readme"}
 	env := []string{"env", broker + "-microservice-env"}
 	if p.Database != "" {
-		buildDatabase(p, p.Database)
+		if err := buildDatabase(p, p.Database); err != nil {
+			return err
+		}
 		readme = append(readme, p.Database+"-readme")
 		env = append(env, p.Database+"-env")
 	}
@@ -52,7 +58,10 @@ func buildWorker(p *Project) {
 		fileGenerator([]string{"worker-main-with-db"}, p)
 	}
 
-	goGetPackages(p.Path, packages)
+	if err := goGetPackages(p.Path, packages); err != nil {
+		return err
+	}
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	return nil
 }

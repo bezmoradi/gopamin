@@ -18,7 +18,7 @@ var webRecipes = map[string]webRecipe{
 	"httprouter": {"web-app-httprouter-routes", "web-app-httprouter-users", []string{"github.com/julienschmidt/httprouter"}},
 }
 
-func buildWebApp(p *Project) {
+func buildWebApp(p *Project) error {
 	recipe := webRecipes[p.Platform]
 	env := []string{"env", "web-app-env"}
 	readme := []string{"readme", p.Logger + "-readme"}
@@ -48,12 +48,20 @@ func buildWebApp(p *Project) {
 		env = append(env, "otel-env")
 	}
 
-	buildDatabase(p, database)
-	buildLogger(p)
-	buildObservability(p)
+	if err := buildDatabase(p, database); err != nil {
+		return err
+	}
+	if err := buildLogger(p); err != nil {
+		return err
+	}
+	if err := buildObservability(p); err != nil {
+		return err
+	}
 	if p.Broker != "" {
 		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
-		goGetPackages(p.Path, workerRecipes[p.Broker])
+		if err := goGetPackages(p.Path, workerRecipes[p.Broker]); err != nil {
+			return err
+		}
 	}
 	fileGenerator(env, p)
 	fileGenerator(readme, p)
@@ -79,7 +87,10 @@ func buildWebApp(p *Project) {
 	fileGenerator([]string{"web-app-users-html-template"}, p)
 	fileGenerator([]string{"web-app-user-html-template"}, p)
 	fileGenerator([]string{"web-app-embed"}, p)
-	goGetPackages(p.Path, recipe.packages)
+	if err := goGetPackages(p.Path, recipe.packages); err != nil {
+		return err
+	}
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	return nil
 }
