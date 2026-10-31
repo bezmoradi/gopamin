@@ -29,12 +29,11 @@ func buildWebApp(g *generator) {
 
 	for _, key := range []string{
 		"http-main",
-		"web-app-server",
+		"http-server",
 		recipe.routes,
 		recipe.users,
 		"health-handler",
 		"middleware",
-		"router-interface",
 		"web-app-styles",
 		"web-app-users-html-template",
 		"web-app-user-html-template",

@@ -15,18 +15,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       chi.NewRouter(),
 		globalPrefix: "/users",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.

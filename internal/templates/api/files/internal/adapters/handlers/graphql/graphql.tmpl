@@ -2,12 +2,14 @@ package graphql
 
 import (
 	"errors"
+	"net/http"
 
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/user/ports"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
 )
 
 // errInternal is what a server-side fault tells the client. The underlying
@@ -15,7 +17,18 @@ import (
 // host names, and query text. It is logged instead — see sanitize.
 var errInternal = errors.New("internal server error")
 
-func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schema {
+// NewHandler serves the user schema over HTTP; cmd/server mounts it at /graphql.
+func NewHandler(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	schema := newSchema(service, logger)
+	return handler.New(&handler.Config{
+		Schema:     &schema,
+		Pretty:     true,
+		GraphiQL:   false,
+		Playground: true,
+	})
+}
+
+func newSchema(service ports.UserServiceInterface, logger shared.Logger) graphql.Schema {
 	// sanitize decides what the response's errors array may show: a domain
 	// sentinel's text is written by us and safe to echo; anything else — a driver
 	// or broker failure — is logged for an operator and collapses to errInternal

@@ -57,7 +57,6 @@ var registry = map[string]entry{
 	"user-service-interface":    {"common/files/internal/core/user/ports/user-service.interface.tmpl", "internal/core/user/ports/user-service.interface.go"},
 	"user-service":              {"common/files/internal/core/user/services/user.service.tmpl", "internal/core/user/services/user.service.go"},
 	"user-service-test":         {"common/files/internal/core/user/services/user.service_test.tmpl", "internal/core/user/services/user.service_test.go"},
-	"router-interface":          {"common/files/internal/core/shared/router.interface.tmpl", "internal/core/shared/router.interface.go"},
 	"logger-interface":          {"common/files/internal/core/shared/logger.interface.tmpl", "internal/core/shared/logger.interface.go"},
 	"log-logger":                {"common/files/internal/adapters/loggers/log/logger.tmpl", "internal/adapters/loggers/log/logger.go"},
 	"slog-logger":               {"common/files/internal/adapters/loggers/slog/logger.tmpl", "internal/adapters/loggers/slog/logger.go"},
@@ -75,14 +74,13 @@ var registry = map[string]entry{
 	"tools":                     {"common/files/tools/tools.tmpl", "tools/tools.go"},
 	"tools-test":                {"common/files/tools/tools_test.tmpl", "tools/tools_test.go"},
 	"http-main":                 {"common/files/cmd/http-main.tmpl", "cmd/main.go"},
+	"http-server":               {"common/files/cmd/server/server.tmpl", "cmd/server/server.go"},
 
 	"hello-world-main":           {"hello-world/files/cmd/main.tmpl", "cmd/main.go"},
 	"hello-world-readme-with-db": {"hello-world/files/readme/readme-with-db.tmpl", "README.md"},
 	"hello-world-main-test":      {"hello-world/files/cmd/main_test.tmpl", "cmd/main_test.go"},
 	"hello-world-main-with-db":   {"hello-world/files/cmd/main-with-db.tmpl", "cmd/main.go"},
 
-	"api-server":            {"api/files/cmd/server/rest.tmpl", "cmd/server/server.go"},
-	"graphql-server":        {"api/files/cmd/server/graphql.tmpl", "cmd/server/server.go"},
 	"api-http-routes":       {"api/files/internal/adapters/handlers/http/routes.tmpl", "internal/adapters/handlers/http/routes.go"},
 	"api-http-users":        {"api/files/internal/adapters/handlers/http/users.tmpl", "internal/adapters/handlers/http/users.go"},
 	"api-readme":            {"api/files/readme/rest-readme.tmpl", "README.md"},
@@ -125,7 +123,6 @@ var registry = map[string]entry{
 	"cassandra-repository": {"database/files/internal/adapters/repositories/cassandra/repository.tmpl", "internal/adapters/repositories/cassandra/repository.go"},
 	"cassandra-readme":     {"database/files/readme/readme-cassandra.tmpl", "README.md"},
 
-	"web-app-server":              {"web-app/files/cmd/server/server.tmpl", "cmd/server/server.go"},
 	"web-app-readme":              {"web-app/files/readme/readme.tmpl", "README.md"},
 	"web-app-env":                 {"web-app/files/env.tmpl", ".env"},
 	"web-app-http-routes":         {"web-app/files/internal/adapters/handlers/http/routes.tmpl", "internal/adapters/handlers/http/routes.go"},

@@ -11,7 +11,7 @@ type apiRecipe struct {
 func restAPIRecipe(routes, users string, packages []string) apiRecipe {
 	return apiRecipe{
 		readme:   "api-readme",
-		files:    []string{"api-server", routes, users, "api-errors", "api-response", "api-user", "router-interface"},
+		files:    []string{routes, users, "api-errors", "api-response", "api-user"},
 		packages: packages,
 	}
 }
@@ -25,7 +25,7 @@ var apiRecipes = map[string]apiRecipe{
 	"http":       restAPIRecipe("api-http-routes", "api-http-users", nil),
 	"graphql": {
 		readme:   "graphql-readme",
-		files:    []string{"graphql-server", "graphql-schema"},
+		files:    []string{"graphql-schema"},
 		packages: []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"},
 	},
 }
@@ -42,6 +42,7 @@ func buildAPI(g *generator) {
 	buildDatabase(g, database)
 
 	g.file("http-main")
+	g.file("http-server")
 	for _, key := range recipe.files {
 		g.file(key)
 	}

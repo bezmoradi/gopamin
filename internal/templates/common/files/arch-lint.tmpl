@@ -40,7 +40,7 @@ excludeFiles:
   - "^.*_test\\.go$"
 
 components:
-  # Cross-cutting infrastructure contracts (logger, and the router for HTTP types).
+  # Cross-cutting infrastructure contracts (the logger port).
   # Always present — every project ships a logger.
   shared:        { in: internal/core/shared }
 {{- if $hasCore}}
