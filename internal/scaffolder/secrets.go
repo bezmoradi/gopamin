@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -14,6 +15,15 @@ func randomToken(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b) // crypto/rand.Read never fails (it crashes the program instead)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// randomHex returns n random bytes as lowercase hex. Service passwords use it:
+// hex can't start with '-' (which redis-cli and redis-server would read as a
+// flag) and needs no escaping in a URL, a DSN or a shell command.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // hashPassword encodes password exactly the way the generated auth adapter

@@ -43,6 +43,11 @@ type Project struct {
 type Secrets struct {
 	JWTSecret        string
 	AuthPasswordHash string
+	// DatabasePassword, DatabaseRootPassword (MySQL/MariaDB) and BrokerPassword
+	// (RabbitMQ/Redis) configure the docker-compose services and the app alike.
+	DatabasePassword     string
+	DatabaseRootPassword string
+	BrokerPassword       string
 }
 
 // containerizedDatabases run as a service in docker-compose.yml. sqlite and

@@ -10,7 +10,11 @@ import (
 	"strconv"
 
 	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/migrations"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/sqlite3"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -35,8 +39,9 @@ type Repository struct {
 	db *sql.DB
 }
 
-// New opens the SQLite file named by SQLITE_DB_URL and pings it, so a path the
-// app can't open stops it at startup.
+// New opens the SQLite file named by SQLITE_DB_URL, applies any pending
+// migrations from migrations/, and pings it, so a path the app can't open stops
+// it at startup.
 func New() (*Repository, error) {
 	dburl := os.Getenv("SQLITE_DB_URL")
 	if dburl == "" {
@@ -46,6 +51,10 @@ func New() (*Repository, error) {
 		// Dockerfile's WORKDIR this resolves to a writable, volume-mountable path.
 		dburl = "./test.db"
 	}
+	if err := migrateUp(dburl); err != nil {
+		return nil, fmt.Errorf("migrate SQLite database %q: %w", dburl, err)
+	}
+
 	db, err := sql.Open("sqlite3", dburl)
 	if err != nil {
 		return nil, err
@@ -55,9 +64,30 @@ func New() (*Repository, error) {
 		return nil, fmt.Errorf("cannot open SQLite database %q: %w", dburl, err)
 	}
 
-	// Schema is owned by the versioned migrations in migrations/ (run `make
-	// migrate-up`), not created here — so the app never races on DDL at startup.
 	return &Repository{db: db}, nil
+}
+
+// migrateUp applies the migrations embedded from migrations/. It records them in
+// the same schema_migrations table as `make migrate-up`, so either can run first
+// and the other has nothing to do. The server databases leave this to `make
+// migrate-up`, because several instances starting at once would race on DDL; a
+// SQLite file belongs to one process, and a container started from the image
+// gets its schema without a separate step.
+func migrateUp(dburl string) error {
+	source, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		return err
+	}
+	m, err := migrate.NewWithSourceInstance("iofs", source, "sqlite3://"+dburl)
+	if err != nil {
+		return err
+	}
+	defer func() { _, _ = m.Close() }()
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+	return nil
 }
 
 // Ping reports whether the database file is usable; /readyz calls it.

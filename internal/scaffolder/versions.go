@@ -29,6 +29,7 @@ var modulePins = map[string]string{
 	"github.com/jackc/pgx/v5":                     "v5.12.0",
 	"go.mongodb.org/mongo-driver/v2":              "v2.9.2",
 	"github.com/mattn/go-sqlite3":                 "v1.14.52",
+	"github.com/golang-migrate/migrate/v4":        "v4.20.1",
 	"github.com/dgraph-io/badger/v4":              "v4.9.6",
 	"github.com/apache/cassandra-gocql-driver/v2": "v2.1.2",
 

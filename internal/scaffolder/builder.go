@@ -181,6 +181,10 @@ func buildDatabase(g *generator, database string) {
 		g.file("migration-up")
 		g.file("migration-down")
 	}
+	// SQLite applies the embedded migrations at startup (see its adapter).
+	if database == "sqlite" {
+		g.file("migrations-embed")
+	}
 
 	g.need(recipe.packages...)
 }

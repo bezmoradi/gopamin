@@ -3,6 +3,6 @@
 {{$env}}_HOST=localhost
 {{$env}}_PORT=3306
 {{$env}}_DATABASE={{.Database}}-testing
-{{$env}}_USERNAME=john
-{{$env}}_PASSWORD=doe
-{{$env}}_ROOT_PASSWORD=john_doe
+{{$env}}_USERNAME=app
+{{$env}}_PASSWORD={{.Secrets.DatabasePassword}}
+{{$env}}_ROOT_PASSWORD={{.Secrets.DatabaseRootPassword}}

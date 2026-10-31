@@ -3,6 +3,6 @@
 # the compose container; keep the URI in step with them. Add tls=true for a real server.
 MONGODB_NAME=test
 MONGODB_PORT=27017
-MONGODB_USERNAME=john
-MONGODB_PASSWORD=doe
-MONGODB_URI=mongodb://john:doe@localhost:27017/?authSource=admin
+MONGODB_USERNAME=app
+MONGODB_PASSWORD={{.Secrets.DatabasePassword}}
+MONGODB_URI=mongodb://app:{{.Secrets.DatabasePassword}}@localhost:27017/?authSource=admin

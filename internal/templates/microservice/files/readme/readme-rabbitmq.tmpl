@@ -9,9 +9,9 @@
 The worker reads event envelopes; anything else is logged and dropped. The `id` must be a new UUID for each event. Publish from the management UI (Queues → `{{.Slug}}-users` → Publish message), or from the container:
 
 ```text
-$ docker compose exec rabbitmq rabbitmqadmin -u <RABBITMQ_USER> -p <RABBITMQ_PASSWORD> \
-    publish routing_key={{.Slug}}-users \
-    payload='{"id":"7c1f8f9e-8a8e-4a43-9a43-0f9f4b8c2f10","type":"user.created","version":1,"data":{"name":"Ada"}}'
+$ docker compose exec rabbitmq rabbitmqadmin --username <RABBITMQ_USER> --password <RABBITMQ_PASSWORD> \
+    publish message --routing-key {{.Slug}}-users \
+    --payload '{"id":"7c1f8f9e-8a8e-4a43-9a43-0f9f4b8c2f10","type":"user.created","version":1,"data":{"name":"Ada"}}'
 ```
 
 The worker logs `{{if .Database}}event persisted{{else}}event received{{end}}` with the event's type and id.

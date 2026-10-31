@@ -77,6 +77,10 @@ components:
 {{- if .Observability}}
   observability: { in: internal/adapters/observability }
 {{- end}}
+{{- if eq .Database "sqlite"}}
+  # migrations/: the embedded SQL the SQLite adapter applies at startup.
+  migrations:   { in: migrations }
+{{- end}}
   configs:      { in: configs }
   tools:        { in: tools }
   cmd:          { in: cmd }
@@ -95,7 +99,7 @@ deps:
   # ADAPTERS — the only place third-party libraries may live.
 {{- if $hasCore}}
   repositories:
-    mayDependOn: [user-domain, shared]
+    mayDependOn: [user-domain, shared{{if eq .Database "sqlite"}}, migrations{{end}}]
     anyVendorDeps: true          # database driver (the mock adapter has no vendor)
 {{- end}}
   loggers:

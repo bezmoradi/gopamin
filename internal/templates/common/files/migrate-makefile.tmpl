@@ -1,10 +1,11 @@
-MIGRATE_VERSION := v4.19.1
+MIGRATE_VERSION := v4.20.1
 MIGRATIONS_DIR := migrations
 
-# Load .env so the DSN below reuses the same connection settings the app uses.
+# Read .env as make variables, so the DSN below reuses the app's connection
+# settings. They are not exported: no recipe gets the secrets in its environment,
+# and a variable set in your shell still wins over .env for `make run`.
 ifneq (,$(wildcard .env))
 include .env
-export
 endif
 
 # The credentials are pasted into a URL unescaped: if the password contains a URL
@@ -29,8 +30,9 @@ DATABASE_URL ?= sqlite://$(SQLITE_DB_URL)
 # The first run compiles the tool (slow, one-time); later runs use the build cache.
 MIGRATE := go run -tags '$(MIGRATE_TAGS)' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
 
-# migrate-up: apply every pending migration. Run this once before first boot — the
-# app no longer creates its schema at startup.
+# migrate-up: apply every pending migration. {{if eq .Database "sqlite"}}The app also applies them at startup;
+# both record them in the same table.{{else}}Run this once before first boot — the
+# app doesn't create its schema at startup.{{end}}
 migrate-up:
 	@$(MIGRATE) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
 

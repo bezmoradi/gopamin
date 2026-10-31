@@ -48,6 +48,12 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		OpenAPI:       openapi,
 	}
 
+	// Random passwords for the compose database and broker, so no project ships
+	// a known credential on a published port.
+	p.Secrets.DatabasePassword = randomHex(16)
+	p.Secrets.DatabaseRootPassword = randomHex(16)
+	p.Secrets.BrokerPassword = randomHex(16)
+
 	// -a jwt: a random signing secret and demo password, so no two projects share
 	// one and none ships a known default. Only the password's hash is written.
 	var demoPassword string

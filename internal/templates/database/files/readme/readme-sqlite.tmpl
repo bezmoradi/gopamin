@@ -1,11 +1,5 @@
 ## SQLite Setup
 
-The SQLite database file (`test.db` by default, ignored by Git) is created automatically the first time the app connects. Its **schema**, however, is managed by versioned migration files under `migrations/` (via [golang-migrate](https://github.com/golang-migrate/migrate)) rather than being created when the app boots.
+The SQLite database file (`test.db` by default, ignored by Git) is created the first time the app connects. Its **schema** is managed by versioned migration files under `migrations/` (via [golang-migrate](https://github.com/golang-migrate/migrate)), and the app applies any pending ones at startup, so `make run` works on a fresh checkout.
 
-Create the schema **before** running the app:
-
-```text
-$ make migrate-up
-```
-
-Roll back the most recent migration with `make migrate-down`, and scaffold a new pair with `make migrate-create name=<change>` (e.g. `make migrate-create name=add_email`).
+`make migrate-up` applies them without starting the app; both record what they applied in the same table. Roll back the most recent migration with `make migrate-down`, and scaffold a new pair with `make migrate-create name=<change>` (e.g. `make migrate-create name=add_email`).

@@ -34,6 +34,7 @@ var registry = map[string]entry{
 	"migrate-makefile":          {"common/files/migrate-makefile.tmpl", "Makefile"},
 	"migration-up":              {"common/files/migration-up.tmpl", "migrations/000001_create_users.up.sql"},
 	"migration-down":            {"common/files/migration-down.tmpl", "migrations/000001_create_users.down.sql"},
+	"migrations-embed":          {"database/files/migrations/embed.tmpl", "migrations/migrations.go"},
 	"observability":             {"common/files/internal/adapters/observability/otel.tmpl", "internal/adapters/observability/otel.go"},
 	"otel-collector":            {"common/files/otel-collector.tmpl", "configs/otel-collector.yaml"},
 	"otel-env":                  {"common/files/otel-env.tmpl", ".env"},
