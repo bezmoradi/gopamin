@@ -1,7 +1,6 @@
 package httprouter
 
 import (
-	"io/fs"
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
@@ -43,8 +42,7 @@ func (router router) registerUserRoutes() {
 	router.engine.HandlerFunc(http.MethodPost, router.globalPrefix, router.CreateUserHandler)
 	router.engine.HandlerFunc(http.MethodPut, router.globalPrefix+"/:id", router.UpdateUserHandler)
 	router.engine.HandlerFunc(http.MethodDelete, router.globalPrefix+"/:id", router.DeleteUserHandler)
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	router.engine.ServeFiles("/assets/*filepath", http.FS(assetsFS))
+	router.engine.Handler(http.MethodGet, "/assets/*filepath", web.Assets())
 }
 
 // pathID returns the {id} path parameter.

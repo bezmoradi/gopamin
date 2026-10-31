@@ -206,6 +206,10 @@ func LoginHandler(cfg Config, logger shared.Logger) http.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				return
+			}
 			logger.Warn("auth.login.failure", "client", client, "reason", "malformed request")
 			writeUnauthorized(w, "")
 			return

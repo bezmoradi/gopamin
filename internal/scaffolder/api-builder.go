@@ -26,7 +26,7 @@ var apiRecipes = map[string]apiRecipe{
 	"graphql": {
 		readme:   "graphql-readme",
 		files:    []string{"graphql-schema"},
-		packages: []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"},
+		packages: []string{"github.com/graphql-go/graphql"},
 	},
 }
 

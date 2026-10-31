@@ -4,7 +4,7 @@
 This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -f graphql -d <database>` for persistence.
 
 {{end -}}
-The GraphQL API is a **single `POST /graphql` endpoint** — there is no GraphiQL in-browser IDE. Send each operation as JSON `{"query": "<operation>"}` (the port is `PORT` in `.env`, default `8080`):
+The GraphQL API is a **single `POST /graphql` endpoint** that takes a JSON body — there is no Playground or GraphiQL, and `GET` or form requests are refused. Send each operation as JSON `{"query": "<operation>"}` with `Content-Type: application/json` (the port is `PORT` in `.env`, default `8080`). A document may select at most 10 root fields and 100 fields in total, and introspection is off unless `GRAPHQL_INTROSPECTION=true` in `.env`:
 
 ```text
 curl --location 'http://localhost:8080/graphql' \

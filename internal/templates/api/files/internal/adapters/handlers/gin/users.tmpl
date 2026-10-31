@@ -30,7 +30,8 @@ func (router *router) CreateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		c.JSON(status, api.Response{Error: label})
 		return
 	}
 
@@ -103,7 +104,8 @@ func (router *router) UpdateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		c.JSON(status, api.Response{Error: label})
 		return
 	}
 

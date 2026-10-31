@@ -19,8 +19,9 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(api.Response{Error: label})
 		return
 	}
 
@@ -105,8 +106,9 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(api.Response{Error: label})
 		return
 	}
 

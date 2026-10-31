@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
+	"unicode"
+
 	"{{.Name}}/internal/core/shared"
 )
 
@@ -37,7 +40,7 @@ func (l logger) Error(message string, args ...any) {
 }
 
 func (l logger) Fatal(err error) {
-	l.logger.Println(err)
+	l.logger.Println("FATAL " + token(err.Error()))
 	os.Exit(1)
 }
 
@@ -45,16 +48,31 @@ func (l logger) Panic(err error) {
 	panic(err)
 }
 
+// prepareArgs renders one log line: LEVEL message key=value ... Every part goes
+// through token, so a value holding a space, quote or newline (a request path, a
+// username) can't forge another field or a second log line.
 func prepareArgs(message string, logType string, args ...any) string {
 	if len(args)%2 != 0 {
 		args = args[:len(args)-1]
 	}
 	var msg strings.Builder
-	fmt.Fprintf(&msg, "%s %s", logType, message)
+	msg.WriteString(logType + " " + token(message))
 	for i := 0; i < len(args); i += 2 {
-		key := args[i]
-		value := args[i+1]
-		fmt.Fprintf(&msg, " %s=%v", key, value)
+		msg.WriteString(" " + token(fmt.Sprint(args[i])) + "=" + token(fmt.Sprint(args[i+1])))
 	}
 	return msg.String()
+}
+
+// token returns s unchanged when it is plain text, and Go-quoted when it is empty
+// or contains a space, '=', '"' or a non-printable character.
+func token(s string) string {
+	if s == "" {
+		return `""`
+	}
+	for _, r := range s {
+		if r == ' ' || r == '=' || r == '"' || !unicode.IsPrint(r) {
+			return strconv.Quote(s)
+		}
+	}
+	return s
 }

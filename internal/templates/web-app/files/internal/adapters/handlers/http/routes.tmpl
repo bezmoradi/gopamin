@@ -2,7 +2,6 @@ package http
 
 import (
 	"fmt"
-	"io/fs"
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
@@ -43,13 +42,9 @@ func (router router) registerUserRoutes() {
 	router.engine.HandleFunc(fmt.Sprintf("PUT %v/{id}", router.globalPrefix), router.UpdateUserHandler)
 	router.engine.HandleFunc(fmt.Sprintf("DELETE %v/{id}", router.globalPrefix), router.DeleteUserHandler)
 
-	router.engine.Handle("GET /assets/", router.serveStaticFiles())
+	router.engine.Handle("GET /assets/", web.Assets())
 }
 
-func (router router) serveStaticFiles() http.Handler {
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	return http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS)))
-}
 
 // pathID returns the {id} path parameter.
 func pathID(r *http.Request) string {

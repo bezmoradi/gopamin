@@ -2,8 +2,6 @@ package gin
 
 import (
 	"errors"
-	"html/template"
-	"io/fs"
 	"net/http"
 
 	"{{.Name}}/internal/core/user/domain"
@@ -29,8 +27,7 @@ func (router *router) registerUserRoutes() {
 	r.PUT("/:id", router.UpdateUserHandler)
 	r.DELETE("/:id", router.DeleteUserHandler)
 
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	router.engine.StaticFS("/assets", http.FS(assetsFS))
+	router.engine.GET("/assets/*filepath", gin.WrapH(web.Assets()))
 
 }
 
@@ -49,13 +46,7 @@ func (router router) IndexHandler(c *gin.Context) {
 		return
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
-	if err != nil {
-		router.fail(c, "load page template", err)
-		return
-	}
-
-	if err := tmpl.Execute(c.Writer, result); err != nil {
+	if err := web.Render(c.Writer, "users.html", result); err != nil {
 		router.fail(c, "render page", err)
 	}
 }
@@ -71,13 +62,7 @@ func (router router) ShowUserHandler(c *gin.Context) {
 		return
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
-	if err != nil {
-		router.fail(c, "load page template", err)
-		return
-	}
-
-	if err := tmpl.Execute(c.Writer, result); err != nil {
+	if err := web.Render(c.Writer, "user.html", result); err != nil {
 		router.fail(c, "render page", err)
 	}
 }
@@ -88,6 +73,10 @@ func (router router) CreateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			c.String(http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		c.String(http.StatusBadRequest, "malformed form body")
 		return
 	}
@@ -112,6 +101,10 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBind(&form); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			c.String(http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		c.String(http.StatusBadRequest, "malformed form body")
 		return
 	}

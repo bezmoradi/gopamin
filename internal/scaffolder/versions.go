@@ -23,7 +23,6 @@ var modulePins = map[string]string{
 	"github.com/julienschmidt/httprouter": "v1.3.0",
 	"github.com/gorilla/mux":              "v1.8.1",
 	"github.com/graphql-go/graphql":       "v0.8.1",
-	"github.com/graphql-go/handler":       "v0.2.4",
 
 	"github.com/google/uuid":                      "v1.6.0",
 	"github.com/go-sql-driver/mysql":              "v1.10.1",

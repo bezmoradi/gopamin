@@ -163,7 +163,7 @@ Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "da
 | `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}` | `200` |
 | `DELETE` | `/api/v1/users/:id` | delete | `200` |
 
-Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `422` validation (e.g. empty name) · `500` datastore failure{{if .PublishesEvents}}, or `{"error":"Event publish failure"}` when the row was written but its event never reached **{{.Broker}}** — the two are distinguished so a broker outage doesn't page whoever owns the database. On that one the row **is** committed, so a retry duplicates it rather than completing it (an outbox would be the fix; see `internal/core/user/services`){{end}}. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
+Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `413` body over 1 MiB · `415` write without `Content-Type: application/json` · `422` validation (e.g. empty name) · `500` datastore failure{{if .PublishesEvents}}, or `{"error":"Event publish failure"}` when the row was written but its event never reached **{{.Broker}}** — the two are distinguished so a broker outage doesn't page whoever owns the database. On that one the row **is** committed, so a retry duplicates it rather than completing it (an outbox would be the fix; see `internal/core/user/services`){{end}}. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
 
 **Pagination.** The list endpoint is cursor-paginated so a single request can never trigger an unbounded scan. `?limit=N` bounds the page (default `20`, capped at `100`, both in `domain`); when more rows remain the envelope carries a `next_cursor`, which the client passes back verbatim as `?cursor=…` to fetch the next page. The cursor is **opaque** (URL-safe base64, `base64.RawURLEncoding`) — its contents are a private detail of the repository (a keyset id, a driver paging token, …), so never parse or construct one client-side. A malformed cursor is `400 {"error":"Invalid pagination cursor"}`. There is no offset paging: two of the supported stores (Apache Cassandra, DynamoDB) have no offset at all, so the cursor model is the only one that spans every datastore.
 
@@ -202,7 +202,7 @@ curl -s localhost:8080/api/v1/users/does-not-exist
 
 ## GraphQL API
 
-Single endpoint: `POST /graphql` (GraphiQL is disabled). Schema and resolvers live in `internal/adapters/handlers/graphql`.
+Single endpoint: `POST /graphql` with a JSON body. There is no Playground or GraphiQL; `GET`, form posts and operations in the URL are refused, so a cross-site link or form can't run a mutation. Introspection is off unless `GRAPHQL_INTROSPECTION=true`, and a document may select at most 10 root fields and 100 fields in total (each root field is a datastore call; the limits are in the handler). Schema and resolvers live in `internal/adapters/handlers/graphql`.
 
 - Type `User { id: String, name: String }`
 - Type `UserPage { items: [User], next_cursor: String }`
@@ -279,7 +279,17 @@ Both are mounted at the transport layer in `cmd/server` (so they work for every 
 
 ## Middleware
 
-Requests to the application handler pass through a framework-agnostic middleware chain composed in `cmd/server` (package `internal/adapters/handlers/middleware`): **recover** (a panic becomes a logged `500`, not a crash), **request logging** (method, path, status, duration), **CORS** (permissive by default — tighten `Access-Control-Allow-Origin` before production), and a **per-request timeout** (bounds the request `context` so a slow datastore call can't hang forever). The health endpoints are mounted outside the chain, so probes stay cheap and unlogged.
+Requests to the application handler pass through a framework-agnostic middleware chain composed in `cmd/server` (package `internal/adapters/handlers/middleware`):
+
+- **recover**: a panic becomes a logged `500` with its stack, not a crash. `http.ErrAbortHandler` passes through untouched, and a panic after the response started aborts the connection rather than appending a `500`.
+- **request logging**: method, path, status, duration.
+- **CORS**: only the origins in `CORS_ALLOWED_ORIGINS` (comma-separated `scheme://host[:port]`) get CORS headers; empty means same-origin only. Never use `*`.
+- **cross-origin protection**: `http.CrossOriginProtection` answers `403` to a state-changing request a browser sent from another origin (the CORS allowlist is trusted). Non-browser clients such as curl are unaffected.
+- **body cap**: request bodies over 1 MiB (`middleware.MaxBodyBytes`) get `413`.{{if eq .ProjectType "api"}}
+- **JSON only**: a `POST`/`PUT`/`PATCH` without `Content-Type: application/json` gets `415`, so a cross-site form or `text/plain` fetch can't reach a handler.{{end}}
+- **per-request timeout**: bounds the request `context` so a slow datastore call can't hang forever.
+
+**Security headers** (`nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, a strict `Content-Security-Policy`{{if .HasOpenAPI}}, skipped under `/swagger/` because Swagger UI runs inline scripts{{end}}) wrap the whole server, health endpoints included. The health endpoints are mounted outside the chain, so probes stay cheap and unlogged.
 {{- end}}
 {{- if $hasObservability}}
 
@@ -309,7 +319,7 @@ Every application route requires a bearer token; a demo `POST /login` issues one
 - **Login throttling:** `/login` allows 5 attempts per username and 20 per client address in each one-minute window, then answers `429` with `Retry-After`; a success clears the username's counter. Every attempt is logged as `auth.login.success`, `auth.login.failure` or `auth.login.throttled`, with the client address and username. Limits of this in-memory limiter: it is **per instance** (N replicas allow N times the attempts); behind a reverse proxy every client shares the proxy's address, so derive the client from the proxy's forwarding header only once you trust that proxy; anyone can **lock out a known username** for a minute by spending its 5 attempts; it tracks at most 10,000 keys and, once full of live windows, refuses new keys until one expires. Put a shared limiter (gateway or Redis) in front for production.
 - **All-or-nothing:** the auth middleware wraps the whole framework handler, so **every** app route is protected; the only public endpoints are `/healthz`, `/readyz`, and `/login`. For mixed public/protected app routes, add per-framework middleware (echo groups, chi sub-routers, …).
 {{- if $isGraphql}}
-- **GraphQL note:** `/graphql` is fully behind the bearer token — send it in `Authorization`. Introspection and the Playground therefore require a token too (disabling public introspection is a normal prod-hardening step); expose public queries via per-framework middleware if you need them.
+- **GraphQL note:** `/graphql` is fully behind the bearer token — send it in `Authorization`. Introspection, when enabled, requires a token too; expose public queries via per-framework middleware if you need them.
 {{- end}}
 - **Productionize before shipping:** load `JWT_SECRET` from a secret store and rotate it; replace the single env-configured user in `LoginHandler` with a **real user store**. Serve over TLS only (a bearer token is a password). Not yet included: refresh tokens, revocation, MFA, and role/scope authorization.
 {{- end}}

@@ -138,9 +138,9 @@ var registry = map[string]entry{
 	"web-app-gorilla-users":       {"web-app/files/internal/adapters/handlers/std/users.tmpl", "internal/adapters/handlers/gorilla/users.go"},
 	"web-app-httprouter-routes":   {"web-app/files/internal/adapters/handlers/httprouter/routes.tmpl", "internal/adapters/handlers/httprouter/routes.go"},
 	"web-app-httprouter-users":    {"web-app/files/internal/adapters/handlers/std/users.tmpl", "internal/adapters/handlers/httprouter/users.go"},
-	"web-app-users-html-template": {"web-app/files/assets/users.tmpl", "internal/web/assets/users.html"},
-	"web-app-user-html-template":  {"web-app/files/assets/user.tmpl", "internal/web/assets/user.html"},
-	"web-app-styles":              {"web-app/files/assets/styles.tmpl", "internal/web/assets/styles.css"},
+	"web-app-users-html-template": {"web-app/files/assets/users.tmpl", "internal/web/templates/users.html"},
+	"web-app-user-html-template":  {"web-app/files/assets/user.tmpl", "internal/web/templates/user.html"},
+	"web-app-styles":              {"web-app/files/assets/styles.tmpl", "internal/web/static/styles.css"},
 	"web-app-embed":               {"web-app/files/internal/web/web.tmpl", "internal/web/web.go"},
 
 	"worker-main":                  {"microservice/files/cmd/main.tmpl", "cmd/main.go"},

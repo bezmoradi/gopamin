@@ -1,14 +1,22 @@
 // Package middleware provides transport-layer HTTP middleware applied to every
 // request regardless of the underlying framework: panic recovery, request
-// logging, permissive CORS, and a per-request timeout. They are composed in
-// cmd/server and wrap the framework's http.Handler.
+// logging, CORS and cross-origin protection, a body-size cap, security headers,
+// and a per-request timeout. They are composed in cmd/server and wrap the
+// framework's http.Handler.
 package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
+{{- if eq .ProjectType "api"}}
+	"mime"
+{{- end}}
 	"net/http"
+	"os"
+	"runtime/debug"
 	"slices"
+	"strings"
 	"time"
 
 	"{{.Name}}/internal/core/shared"
@@ -23,18 +31,32 @@ func Chain(h http.Handler, middleware ...func(http.Handler) http.Handler) http.H
 	return h
 }
 
-// Recover turns a panic in a downstream handler into a logged 500 response, so a
-// single bad request cannot crash the server.
+// Recover turns a panic in a downstream handler into a logged 500, so a single
+// bad request cannot crash the server. It matches net/http's own handling where
+// a 500 is impossible or wrong:
+//   - http.ErrAbortHandler is re-panicked untouched: the handler is deliberately
+//     aborting the response, and net/http closes the connection without logging;
+//   - if the response has already started, a 500 can no longer be sent, so the
+//     connection is aborted rather than left looking like a complete response.
 func Recover(logger shared.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rec := &recorder{ResponseWriter: w, status: http.StatusOK}
 			defer func() {
-				if rec := recover(); rec != nil {
-					logger.Error(fmt.Sprintf("panic recovered: %v", rec))
-					w.WriteHeader(http.StatusInternalServerError)
+				v := recover()
+				if v == nil {
+					return
 				}
+				if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+					panic(v)
+				}
+				logger.Error("panic recovered", "panic", fmt.Sprint(v), "method", r.Method, "path", r.URL.Path, "stack", string(debug.Stack()))
+				if rec.written {
+					panic(http.ErrAbortHandler)
+				}
+				w.WriteHeader(http.StatusInternalServerError)
 			}()
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(rec, r)
 		})
 	}
 }
@@ -44,7 +66,7 @@ func RequestLogger(logger shared.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			rec := &recorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
 			logger.Info("request",
 				"method", r.Method,
@@ -68,33 +90,142 @@ func Timeout(d time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
-// CORS sets permissive CORS headers (tighten Allow-Origin before production) and
-// short-circuits preflight OPTIONS requests.
-func CORS(next http.Handler) http.Handler {
+// MaxBodyBytes is the largest request body the server reads: 1 MiB.
+const MaxBodyBytes = 1 << 20
+
+// MaxBytes caps request bodies at n bytes. A handler that reads past the cap gets
+// a *http.MaxBytesError, which the handlers answer with 413.
+func MaxBytes(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// AllowedOrigins reads CORS_ALLOWED_ORIGINS, a comma-separated list of origins
+// (scheme://host[:port]) whose browser pages may call this server. Empty means
+// same-origin only.
+func AllowedOrigins() []string {
+	var origins []string
+	for o := range strings.SplitSeq(os.Getenv("CORS_ALLOWED_ORIGINS"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			origins = append(origins, o)
+		}
+	}
+	return origins
+}
+
+// CORS answers cross-origin requests from the allowed origins only. Any other
+// origin gets no CORS headers, so the browser keeps the response from the calling
+// page; with an empty list the server is same-origin only.
+func CORS(allowed []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Vary", "Origin")
+			origin := r.Header.Get("Origin")
+			if origin != "" && slices.Contains(allowed, origin) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Max-Age", "600")
+			}
+			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CrossOrigin rejects (403) a state-changing request that a browser sent from
+// another origin, using net/http's CrossOriginProtection (Sec-Fetch-Site, then
+// Origin against Host). A page elsewhere can't submit forms or fetches against
+// this server from the visitor's browser. Requests without those headers, such
+// as curl or another server, pass. The CORS allowlist is trusted.
+func CrossOrigin(allowed []string) (func(http.Handler) http.Handler, error) {
+	protection := http.NewCrossOriginProtection()
+	for _, origin := range allowed {
+		if err := protection.AddTrustedOrigin(origin); err != nil {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS: %w", err)
+		}
+	}
+	return protection.Handler, nil
+}
+{{- if eq .ProjectType "api"}}
+
+// RequireJSON answers 415 to a POST, PUT or PATCH whose Content-Type isn't
+// application/json. Besides being correct, it means a cross-site HTML form or a
+// text/plain fetch can't reach a JSON handler: a JSON request from another
+// origin needs a CORS preflight, which only the allowed origins pass.
+func RequireJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || mediaType != "application/json" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnsupportedMediaType)
+				_, _ = w.Write([]byte(`{"error":"Content-Type must be application/json"}` + "\n"))
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+{{- end}}
 
-// statusRecorder captures the response status code so RequestLogger can report it.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
+// contentSecurityPolicy allows nothing the {{if eq .ProjectType "web-app"}}pages{{else}}API{{end}} doesn't use{{if eq .ProjectType "web-app"}} (same-origin CSS
+// and images){{end}}, and no framing.
+const contentSecurityPolicy = "{{if eq .ProjectType "web-app"}}default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'{{else}}default-src 'none'; frame-ancestors 'none'{{end}}"
+
+// SecurityHeaders sets browser hardening headers on every response. cmd/server
+// wraps the whole mux with it, so the health probes and the mux's own redirects
+// and 404s get them too.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+{{- if .HasOpenAPI}}
+		// Swagger UI runs inline scripts and styles, which this policy forbids.
+		if !strings.HasPrefix(r.URL.Path, "/swagger/") {
+			h.Set("Content-Security-Policy", contentSecurityPolicy)
+		}
+{{- else}}
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+{{- end}}
+		next.ServeHTTP(w, r)
+	})
 }
 
-func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
+
+// recorder remembers the status a handler wrote and whether it has started the
+// response. A Write without WriteHeader is an implicit 200.
+type recorder struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (r *recorder) WriteHeader(code int) {
+	if !r.written {
+		r.status = code
+		r.written = true
+	}
 	r.ResponseWriter.WriteHeader(code)
 }
 
+func (r *recorder) Write(b []byte) (int, error) {
+	r.written = true
+	return r.ResponseWriter.Write(b)
+}
+
 // Unwrap lets http.ResponseController reach the underlying ResponseWriter.
-func (r *statusRecorder) Unwrap() http.ResponseWriter {
+func (r *recorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }

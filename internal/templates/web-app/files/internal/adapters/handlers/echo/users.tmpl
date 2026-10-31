@@ -2,8 +2,6 @@ package echo
 
 import (
 	"errors"
-	"html/template"
-	"io/fs"
 	"net/http"
 
 	"{{.Name}}/internal/core/user/domain"
@@ -26,14 +24,17 @@ func (router router) registerUserRoutes() {
 	group.PUT("/:id", router.UpdateUserHandler)
 	group.DELETE("/:id", router.DeleteUserHandler)
 
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	router.engine.GET("/assets/*", echo.WrapHandler(
-		http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS))),
-	))
+	router.engine.GET("/assets/*", echo.WrapHandler(web.Assets()))
 
 }
 
 func (router router) CreateUserHandler(c *echo.Context) error {
+	if err := c.Request().ParseForm(); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.String(http.StatusRequestEntityTooLarge, "request body too large")
+		}
+		return c.String(http.StatusBadRequest, "malformed form body")
+	}
 	name := c.FormValue("name")
 	_, err := router.service.Create(c.Request().Context(), name)
 	if domain.IsValidationError(err) {
@@ -70,12 +71,10 @@ func (router *router) IndexHandler(c *echo.Context) error {
 		return router.fail(c, "list users", err)
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
-	if err != nil {
-		return router.fail(c, "load page template", err)
+	if err := web.Render(c.Response(), "users.html", result); err != nil {
+		return router.fail(c, "render page", err)
 	}
-
-	return tmpl.Execute(c.Response(), result)
+	return nil
 }
 
 func (router *router) ShowUserHandler(c *echo.Context) error {
@@ -87,15 +86,19 @@ func (router *router) ShowUserHandler(c *echo.Context) error {
 		return router.fail(c, "fetch user", err)
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
-	if err != nil {
-		return router.fail(c, "load page template", err)
+	if err := web.Render(c.Response(), "user.html", result); err != nil {
+		return router.fail(c, "render page", err)
 	}
-
-	return tmpl.Execute(c.Response(), result)
+	return nil
 }
 
 func (router *router) UpdateUserHandler(c *echo.Context) error {
+	if err := c.Request().ParseForm(); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.String(http.StatusRequestEntityTooLarge, "request body too large")
+		}
+		return c.String(http.StatusBadRequest, "malformed form body")
+	}
 	name := c.FormValue("name")
 	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
 	if domain.IsValidationError(err) {

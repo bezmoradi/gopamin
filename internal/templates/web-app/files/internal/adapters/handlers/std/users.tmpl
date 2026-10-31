@@ -4,7 +4,6 @@ package {{.Platform}}
 
 import (
 	"errors"
-	"html/template"
 	"net/http"
 
 	"{{.Name}}/internal/core/user/domain"
@@ -19,6 +18,10 @@ const internalFailure = "internal server error"
 func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "malformed form body", http.StatusBadRequest)
 		return
 	}
@@ -66,16 +69,8 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
-	if err != nil {
-		router.fail(w, "load page template", err)
-		return
-	}
-
-	err = tmpl.Execute(w, result)
-	if err != nil {
+	if err := web.Render(w, "users.html", result); err != nil {
 		router.fail(w, "render page", err)
-		return
 	}
 }
 
@@ -90,22 +85,18 @@ func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
-	if err != nil {
-		router.fail(w, "load page template", err)
-		return
-	}
-
-	err = tmpl.Execute(w, result)
-	if err != nil {
+	if err := web.Render(w, "user.html", result); err != nil {
 		router.fail(w, "render page", err)
-		return
 	}
 }
 
 func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "malformed form body", http.StatusBadRequest)
 		return
 	}

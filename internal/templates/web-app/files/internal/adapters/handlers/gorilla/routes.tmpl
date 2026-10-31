@@ -1,7 +1,6 @@
 package gorilla
 
 import (
-	"io/fs"
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
@@ -46,15 +45,9 @@ func (router router) registerUserRoutes() {
 	subrouter.HandleFunc("/{id}", router.UpdateUserHandler).Methods("PUT")
 	subrouter.HandleFunc("/{id}", router.DeleteUserHandler).Methods("DELETE")
 
-	router.engine.PathPrefix("/assets/").Handler(
-		http.StripPrefix("/assets/", router.serveStaticFiles()),
-	)
+	router.engine.PathPrefix("/assets/").Methods(http.MethodGet).Handler(web.Assets())
 }
 
-func (router router) serveStaticFiles() http.Handler {
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	return http.FileServer(http.FS(assetsFS))
-}
 
 // pathID returns the {id} path parameter.
 func pathID(r *http.Request) string {

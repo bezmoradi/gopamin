@@ -27,7 +27,8 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
-		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		return c.JSON(status, api.Response{Error: label})
 	}
 
 	result, err := router.service.Create(c.Request().Context(), body.Name)
@@ -93,7 +94,8 @@ func (router *router) UpdateUserHandler(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
-		return c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		return c.JSON(status, api.Response{Error: label})
 	}
 
 	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)

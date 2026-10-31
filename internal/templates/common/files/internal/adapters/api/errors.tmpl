@@ -1,5 +1,10 @@
 package api
 
+import (
+	"errors"
+	"net/http"
+)
+
 type ErrorMessageType string
 
 // The stable, coarse label a client branches on. The specific reason — when it
@@ -12,6 +17,7 @@ const (
 	NotFoundError            ErrorMessageType = "Not found"
 	ValidationFailure        ErrorMessageType = "Validation failed"
 	FailedToReadRequestBody  ErrorMessageType = "Failed to read request body"
+	RequestBodyTooLarge      ErrorMessageType = "Request body too large"
 	DatabaseOperationFailure ErrorMessageType = "Database operation failure"
 	InvalidCursor            ErrorMessageType = "Invalid pagination cursor"
 {{- if .PublishesEvents}}
@@ -22,3 +28,12 @@ const (
 	EventPublishFailure ErrorMessageType = "Event publish failure"
 {{- end}}
 )
+
+// DecodeFailure maps a request-body decode error to its status and label: 413
+// when the body ran past the server's size cap (middleware.MaxBytes), else 400.
+func DecodeFailure(err error) (int, ErrorMessageType) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		return http.StatusRequestEntityTooLarge, RequestBodyTooLarge
+	}
+	return http.StatusBadRequest, FailedToReadRequestBody
+}
