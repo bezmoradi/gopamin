@@ -5,15 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token: the pipeline builds and checks, it never writes to the repo.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      # Actions are pinned to a commit, not a movable tag. Update the SHA and the
+      # version comment together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave the token in .git/config for the later steps.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Single source of truth: the Go version comes from go.mod.
           go-version-file: go.mod
+          check-latest: true
       - name: Build
         run: go build ./...
       - name: Test

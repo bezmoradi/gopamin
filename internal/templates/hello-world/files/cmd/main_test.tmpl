@@ -1,12 +1,26 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"{{.Name}}/configs"
+)
 
 func TestProjectName(t *testing.T) {
 	t.Run("return project name", func(t *testing.T) {
-		projectName := projectName()
-		if projectName != "{{.Name}}" {
-			t.Fatalf("expected {{.Name}} but got %v", projectName)
+		// The test brings its own .env: the project's is gitignored, so a clean
+		// checkout (CI) has none.
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("PROJECT_NAME={{.Name}}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(dir)
+		configs.LoadEnv()
+
+		if got := projectName(); got != "{{.Name}}" {
+			t.Fatalf("expected {{.Name}} but got %v", got)
 		}
 	})
 }
