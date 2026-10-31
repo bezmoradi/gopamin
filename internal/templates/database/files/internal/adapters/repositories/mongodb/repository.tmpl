@@ -18,7 +18,7 @@ import (
 const collectionName = "users"
 
 type mongodbUser struct {
-	Id   bson.ObjectID `json:"id" bson:"_id"`
+	ID   bson.ObjectID `json:"id" bson:"_id"`
 	Name string             `json:"name" bson:"name"`
 }
 
@@ -34,7 +34,7 @@ type Repository struct {
 
 func mapMongodbToUser(m mongodbUser) domain.User {
 	return domain.User{
-		Id:   m.Id.Hex(),
+		ID:   m.ID.Hex(),
 		Name: m.Name,
 	}
 }
@@ -109,12 +109,12 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 
-	insertedId, ok := result.InsertedID.(bson.ObjectID)
+	insertedID, ok := result.InsertedID.(bson.ObjectID)
 	if !ok {
 		return "", fmt.Errorf("unexpected type for InsertedID")
 	}
 
-	return insertedId.Hex(), nil
+	return insertedID.Hex(), nil
 }
 
 {{if eq .ProjectType "worker"}}// InsertOnce inserts a user for key (a consumed event's id) unless the unique
@@ -218,11 +218,11 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 		if err != nil {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		afterId, err := bson.ObjectIDFromHex(string(decoded))
+		afterID, err := bson.ObjectIDFromHex(string(decoded))
 		if err != nil {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		after := bson.M{"$gt": afterId}
+		after := bson.M{"$gt": afterID}
 		filter = bson.M{"_id": after}
 	}
 
@@ -254,7 +254,7 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 	page := domain.Page{Items: users}
 	if len(users) > limit {
 		page.Items = users[:limit]
-		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].ID))
 	}
 
 	return page, nil

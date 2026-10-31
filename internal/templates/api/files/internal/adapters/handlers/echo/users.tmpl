@@ -12,7 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func (router router) registerUserRoutes() {
+func (router *router) registerUserRoutes() {
 	group := router.engine.Group(router.globalPrefix + "/users")
 
 	group.GET("", router.IndexHandler)
@@ -22,7 +22,7 @@ func (router router) registerUserRoutes() {
 	group.DELETE("/:id", router.DeleteUserHandler)
 }
 
-func (router router) CreateUserHandler(c *echo.Context) error {
+func (router *router) CreateUserHandler(c *echo.Context) error {
 	var body struct {
 		Name string `json:"name"`
 	}

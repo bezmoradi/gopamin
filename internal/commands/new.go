@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/bezmoradi/gopamin/internal/scaffolder"
@@ -35,6 +36,13 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
  gopamin new -n HelloWorld -t worker -b kafka -l slog`,
 	Use:   "new",
 	Short: "Create a new project",
+	// The update check runs only here, so `version`, `help` and completion never
+	// wait on the network. It is advisory and never blocks.
+	PreRun: func(cmd *cobra.Command, args []string) {
+		if latest := newerVersion(); latest != "" {
+			fmt.Printf("Gopamin %v is available (you have %v). To update, run: go install github.com/bezmoradi/gopamin@%v\n\n", latest, VERSION, latest)
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// argsValidator prints a specific message for the first rule it fails.
 		// Exit non-zero on rejection so scripts and CI can detect the failure

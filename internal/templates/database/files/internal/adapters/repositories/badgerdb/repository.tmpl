@@ -69,7 +69,7 @@ func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) 
 		}
 		return domain.User{}, err
 	}
-	return domain.User{Id: id, Name: string(value)}, nil
+	return domain.User{ID: id, Name: string(value)}, nil
 }
 
 func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
@@ -116,14 +116,14 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 			// returned key is a valid continuation point (we resume strictly
 			// after it, matching the keyset semantics of the SQL adapters).
 			if len(page.Items) == limit {
-				page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+				page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].ID))
 				break
 			}
 
 			item := it.Item()
 			k := item.KeyCopy(nil)
 			err := item.Value(func(v []byte) error {
-				page.Items = append(page.Items, domain.User{Id: string(k), Name: string(v)})
+				page.Items = append(page.Items, domain.User{ID: string(k), Name: string(v)})
 				return nil
 			})
 			if err != nil {

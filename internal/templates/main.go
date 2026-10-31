@@ -51,7 +51,7 @@ var registry = map[string]entry{
 	"gitlab-ci":                 {"common/files/gitlab-ci.tmpl", ".gitlab-ci.yml"},
 	"health-handler":            {"common/files/internal/adapters/handlers/health/health.tmpl", "internal/adapters/handlers/health/health.go"},
 	"middleware":                {"common/files/internal/adapters/handlers/middleware/middleware.tmpl", "internal/adapters/handlers/middleware/middleware.go"},
-	"mock-repository":           {"common/files/internal/adapters/repositories/mock/repository.tmpl", "internal/adapters/repositories/mock/repository.go"},
+	"memory-repository":         {"common/files/internal/adapters/repositories/memory/repository.tmpl", "internal/adapters/repositories/memory/repository.go"},
 	"user-test":                 {"common/files/internal/core/user/domain/user_test.tmpl", "internal/core/user/domain/user_test.go"},
 	"user":                      {"common/files/internal/core/user/domain/user.tmpl", "internal/core/user/domain/user.go"},
 	"user-repository-interface": {"common/files/internal/core/user/ports/user-repository.interface.tmpl", "internal/core/user/ports/user-repository.interface.go"},

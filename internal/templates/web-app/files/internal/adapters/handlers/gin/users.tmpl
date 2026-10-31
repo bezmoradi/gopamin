@@ -31,7 +31,7 @@ func (router *router) registerUserRoutes() {
 
 }
 
-func (router router) IndexHandler(c *gin.Context) {
+func (router *router) IndexHandler(c *gin.Context) {
 	// Forward-only paging: the "Next" link carries an opaque ?cursor. limit 0
 	// lets the service apply its default page size.
 	cursor := c.Request.URL.Query().Get("cursor")
@@ -51,7 +51,7 @@ func (router router) IndexHandler(c *gin.Context) {
 	}
 }
 
-func (router router) ShowUserHandler(c *gin.Context) {
+func (router *router) ShowUserHandler(c *gin.Context) {
 	result, err := router.service.Show(c.Request.Context(), c.Param("id"))
 	if errors.Is(err, domain.ErrUserNotFound) {
 		c.String(http.StatusNotFound, "user not found")
@@ -67,7 +67,7 @@ func (router router) ShowUserHandler(c *gin.Context) {
 	}
 }
 
-func (router router) CreateUserHandler(c *gin.Context) {
+func (router *router) CreateUserHandler(c *gin.Context) {
 	var form struct {
 		Name string `form:"name"`
 	}
@@ -95,7 +95,7 @@ func (router router) CreateUserHandler(c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
-func (router router) UpdateUserHandler(c *gin.Context) {
+func (router *router) UpdateUserHandler(c *gin.Context) {
 	var form struct {
 		Name string `form:"name"`
 	}
@@ -126,7 +126,7 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func (router router) DeleteUserHandler(c *gin.Context) {
+func (router *router) DeleteUserHandler(c *gin.Context) {
 	err := router.service.Delete(c.Request.Context(), c.Param("id"))
 	if errors.Is(err, domain.ErrUserNotFound) {
 		c.String(http.StatusNotFound, "user not found")

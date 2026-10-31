@@ -44,10 +44,6 @@ func (l logger) Fatal(err error) {
 	os.Exit(1)
 }
 
-func (l logger) Panic(err error) {
-	panic(err)
-}
-
 // prepareArgs renders one log line: LEVEL message key=value ... Every part goes
 // through token, so a value holding a space, quote or newline (a request path, a
 // username) can't forge another field or a second log line.

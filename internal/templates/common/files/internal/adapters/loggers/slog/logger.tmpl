@@ -42,7 +42,3 @@ func (l logger) Fatal(err error) {
 	l.logger.Error(err.Error())
 	os.Exit(1)
 }
-
-func (l logger) Panic(err error) {
-	panic(err)
-}

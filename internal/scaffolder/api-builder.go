@@ -37,7 +37,7 @@ func buildAPI(g *generator) {
 
 	database := g.p.Database
 	if database == "" {
-		database = "mock"
+		database = "memory"
 	}
 	buildDatabase(g, database)
 

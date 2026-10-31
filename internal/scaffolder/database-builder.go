@@ -16,5 +16,5 @@ var databaseRecipes = map[string]databaseRecipe{
 	"sqlite":    {"sqlite-repository", []string{"github.com/mattn/go-sqlite3", "github.com/golang-migrate/migrate/v4", "github.com/google/uuid"}},
 	"badgerdb":  {"badgerdb-repository", []string{"github.com/dgraph-io/badger/v4", "github.com/google/uuid"}},
 	"cassandra": {"cassandra-repository", []string{"github.com/apache/cassandra-gocql-driver/v2", "github.com/google/uuid"}},
-	"mock":      {"", []string{"github.com/google/uuid"}},
+	"memory":    {"memory-repository", []string{"github.com/google/uuid"}},
 }

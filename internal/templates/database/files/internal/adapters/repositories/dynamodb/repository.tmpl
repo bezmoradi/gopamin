@@ -41,7 +41,7 @@ type Repository struct {
 
 func mapDynamodbToUser(d dynamodbUser) domain.User {
 	return domain.User{
-		Id:   d.ID,
+		ID:   d.ID,
 		Name: d.Name,
 	}
 }

@@ -10,7 +10,7 @@
         <h1>Users:</h1>
         <ul>
             {{`{{range .Items}}`}}
-            <li><a href="/users/{{`{{.Id}}`}}">{{`{{.Name}}`}}</a></li>
+            <li><a href="/users/{{`{{.ID}}`}}">{{`{{.Name}}`}}</a></li>
             {{`{{end}}`}}
         </ul>
         {{`{{if .NextCursor}}`}}

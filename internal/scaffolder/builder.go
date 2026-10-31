@@ -2,7 +2,7 @@ package scaffolder
 
 import "github.com/bezmoradi/gopamin/internal/project"
 
-const BUILD_SUCCESS_MESSAGE = "project has been successfully created. Please consult the README.md file for instructions and guidance."
+const buildSuccessMessage = "project has been successfully created. Please consult the README.md file for instructions and guidance."
 
 // Project is the data every template renders with.
 type Project = project.Project
@@ -45,11 +45,10 @@ var ciRecipes = map[string]string{
 	"gitlab": "gitlab-ci",
 }
 
-// coreRepositoryFiles are the domain/ports/services/mock files generated for any
+// coreRepositoryFiles are the domain/ports/services files generated for any
 // project that ships the user repository stack (api, web-app, and hello-world
 // with a database).
 var coreRepositoryFiles = []string{
-	"mock-repository",
 	"user-test",
 	"user",
 	"user-repository-interface",
@@ -158,7 +157,7 @@ var observabilityPackages = []string{
 
 // buildDatabase generates the user repository stack plus the chosen database's
 // adapter. `database` is passed explicitly (rather than read from p.Database) so
-// api/web-app can request the in-memory "mock" without mutating the Project.
+// api/web-app can request the in-memory "memory" store without mutating the Project.
 func buildDatabase(g *generator, database string) {
 	for _, key := range coreRepositoryFiles {
 		// The user service is one template that grows publisher plumbing when

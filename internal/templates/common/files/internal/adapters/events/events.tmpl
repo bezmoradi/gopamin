@@ -45,7 +45,7 @@ func Encode(event domain.Event) ([]byte, error) {
 		Type:       string(event.Kind),
 		Version:    Version,
 		OccurredAt: time.Now().UTC(),
-		Data:       User{ID: event.User.Id, Name: event.User.Name},
+		Data:       User{ID: event.User.ID, Name: event.User.Name},
 	})
 }
 

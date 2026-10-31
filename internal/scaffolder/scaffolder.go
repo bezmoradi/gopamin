@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +16,8 @@ import (
 )
 
 func New(projectType, platform, broker, name, database, logger, ci, observability, auth, openapi string) {
-	alphanumericName := replaceNonAlphanumeric(name)
-	moduleName := replaceNonAlphanumeric(name, "/")
+	alphanumericName := DirectoryName(name)
+	moduleName := ModulePath(name)
 	currentDir, err := os.Getwd()
 	if err != nil {
 		fmt.Println("Unable to get your current working directory:", err)
@@ -84,7 +83,7 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		color.Yellow("warning: go mod tidy failed: %v", err)
 	}
 
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	fmt.Printf("%v "+buildSuccessMessage+"\n", p.Name)
 	if demoPassword != "" {
 		color.Cyan("Demo login for POST /login: username \"admin\", password %q.", demoPassword)
 		color.Cyan("This is the only time the password is shown; .env keeps only its hash. Run `make hash-password` to set a new one.")
@@ -111,21 +110,36 @@ func generate(p *Project) error {
 	return goGetPackages(p.Path, append(g.modules, securityFloor...))
 }
 
+// IsProjectNameTaken reports whether the project's directory already exists, as
+// anything, even an empty directory: New creates it with Mkdir, which would fail.
 func IsProjectNameTaken(name string) bool {
-	name = replaceNonAlphanumeric(name)
+	_, err := os.Lstat(DirectoryName(name))
+	return err == nil
+}
 
-	if _, err := os.Stat(name); err == nil {
-		dirEntries, err := os.ReadDir(name)
-		if err != nil {
-			log.Println("Could not read the directory")
-			return true
-		}
-		if len(dirEntries) > 0 {
-			return true
-		}
+// IsValidProjectName reports whether name yields a usable directory and module
+// path: one that starts with a letter or digit, so neither `go mod init` nor
+// another command reads it as a flag.
+func IsValidProjectName(name string) bool {
+	module := ModulePath(name)
+	if module == "" {
+		return false
 	}
+	first := module[0]
+	return ('a' <= first && first <= 'z') || ('A' <= first && first <= 'Z') || ('0' <= first && first <= '9')
+}
 
-	return false
+// ModulePath is the go.mod module path for name: whitespace and characters a
+// module path can't hold become '-'. Case is kept, so github.com/Acme/svc stays
+// as written.
+func ModulePath(name string) string {
+	return replaceNonAlphanumeric(name, "/")
+}
+
+// DirectoryName is the directory created for name: the module path with '/'
+// replaced too, lowercased.
+func DirectoryName(name string) string {
+	return strings.ToLower(replaceNonAlphanumeric(name))
 }
 
 // fileGenerator renders the templates named by keys, concatenated in order, into
@@ -243,5 +257,5 @@ func replaceNonAlphanumeric(input string, exclude ...string) string {
 	} else {
 		nonAlphanumericRegex = regexp.MustCompile("[^a-zA-Z0-9._]")
 	}
-	return nonAlphanumericRegex.ReplaceAllString(strings.TrimSpace(strings.ToLower(input)), "-")
+	return nonAlphanumericRegex.ReplaceAllString(strings.TrimSpace(input), "-")
 }

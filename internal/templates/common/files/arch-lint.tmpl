@@ -32,10 +32,9 @@ allow:
   # phantom adapter->service edge. We enforce the import graph, not data-flow.
   deepScan: false
 
-# Co-located tests deliberately cross layers: the service test drives the in-memory
-# mock repository adapter — correct Clean-Architecture testing, with the test (not
-# production code) doing the wiring. Boundaries are enforced on the production import
-# graph, not on tests.
+# Tests aren't held to the layer rules: a test may wire real adapters to the code
+# under test (the generated service test uses a fake defined in the test itself).
+# Boundaries are enforced on the production import graph.
 excludeFiles:
   - "^.*_test\\.go$"
 
@@ -100,7 +99,7 @@ deps:
 {{- if $hasCore}}
   repositories:
     mayDependOn: [user-domain, shared{{if eq .Database "sqlite"}}, migrations{{end}}]
-    anyVendorDeps: true          # database driver (the mock adapter has no vendor)
+    anyVendorDeps: true          # database driver (the memory store: google/uuid only)
 {{- end}}
   loggers:
     mayDependOn: [shared]

@@ -10,25 +10,27 @@ import (
 	"{{.Name}}/internal/core/user/ports"
 )
 
-type userService struct {
+// UserService holds the user use cases. It depends only on ports, so any
+// repository{{if .PublishesEvents}} and publisher{{end}} adapter can be plugged in.
+type UserService struct {
 	repo ports.UserRepositoryInterface
 {{- if .PublishesEvents}}
 	publisher ports.EventPublisher
 {{- end}}
 }
 
-func NewUserService(repo ports.UserRepositoryInterface) *userService {
-	return &userService{repo: repo}
+func NewUserService(repo ports.UserRepositoryInterface) *UserService {
+	return &UserService{repo: repo}
 }
 {{if .PublishesEvents}}
 // WithPublisher attaches an event publisher so that writes emit domain events.
 // It is optional: a service constructed without one simply skips publishing.
-func (us *userService) WithPublisher(publisher ports.EventPublisher) *userService {
+func (us *UserService) WithPublisher(publisher ports.EventPublisher) *UserService {
 	us.publisher = publisher
 	return us
 }
 {{end}}
-func (us *userService) Index(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (us *UserService) Index(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Clamp here so the guardrail is one rule for every caller: a missing or
 	// non-positive limit falls back to the default, and no caller can ask for
 	// more than the cap. The repository always receives a sane, bounded limit.
@@ -42,11 +44,11 @@ func (us *userService) Index(ctx context.Context, limit int, cursor string) (dom
 	return us.repo.FetchAll(ctx, limit, cursor)
 }
 
-func (us *userService) Show(ctx context.Context, id string) (domain.User, error) {
+func (us *UserService) Show(ctx context.Context, id string) (domain.User, error) {
 	return us.repo.Fetch(ctx, id)
 }
 
-func (us *userService) Create(ctx context.Context, name string) (string, error) {
+func (us *UserService) Create(ctx context.Context, name string) (string, error) {
 	// domain.ValidateName owns every name rule; see domain/user.go.
 	if err := domain.ValidateName(name); err != nil {
 		return "", err
@@ -58,7 +60,7 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 	}
 {{- if .PublishesEvents}}
 
-	if err := us.publish(ctx, domain.UserCreated, domain.User{Id: id, Name: name}); err != nil {
+	if err := us.publish(ctx, domain.UserCreated, domain.User{ID: id, Name: name}); err != nil {
 		return "", err
 	}
 {{- end}}
@@ -70,7 +72,7 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 // CreateOnce creates a user for the event identified by key, unless one was
 // already created for it. A broker redelivers a message whose processing didn't
 // finish, so consuming the same event twice must not create two users.
-func (us *userService) CreateOnce(ctx context.Context, key string, name string) error {
+func (us *UserService) CreateOnce(ctx context.Context, key string, name string) error {
 	if err := domain.ValidateName(name); err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func (us *userService) CreateOnce(ctx context.Context, key string, name string) 
 }
 {{- end}}
 
-func (us *userService) Update(ctx context.Context, id string, newName string) (domain.User, error) {
+func (us *UserService) Update(ctx context.Context, id string, newName string) (domain.User, error) {
 	if err := domain.ValidateName(newName); err != nil {
 		return domain.User{}, err
 	}
@@ -88,7 +90,7 @@ func (us *userService) Update(ctx context.Context, id string, newName string) (d
 		return domain.User{}, err
 	}
 
-	user := domain.User{Id: id, Name: newName}
+	user := domain.User{ID: id, Name: newName}
 {{- if .PublishesEvents}}
 	if err := us.publish(ctx, domain.UserUpdated, user); err != nil {
 		return domain.User{}, err
@@ -98,13 +100,13 @@ func (us *userService) Update(ctx context.Context, id string, newName string) (d
 	return user, nil
 }
 
-func (us *userService) Delete(ctx context.Context, id string) error {
+func (us *UserService) Delete(ctx context.Context, id string) error {
 {{- if .PublishesEvents}}
 	if err := us.repo.Delete(ctx, id); err != nil {
 		return err
 	}
 
-	return us.publish(ctx, domain.UserDeleted, domain.User{Id: id})
+	return us.publish(ctx, domain.UserDeleted, domain.User{ID: id})
 {{- else}}
 	return us.repo.Delete(ctx, id)
 {{- end}}
@@ -116,7 +118,7 @@ func (us *userService) Delete(ctx context.Context, id string) error {
 // interrupted too, so it trades one inconsistency for another. The error is
 // tagged instead, so the caller can report which half failed. Making both halves
 // atomic needs an outbox table written in the write's own transaction.
-func (us *userService) publish(ctx context.Context, kind domain.EventKind, user domain.User) error {
+func (us *UserService) publish(ctx context.Context, kind domain.EventKind, user domain.User) error {
 	if us.publisher == nil {
 		return nil
 	}

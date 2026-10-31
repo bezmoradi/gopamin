@@ -115,12 +115,13 @@ If the installation process goes well, from now on you can run the `gopamin` com
 
 ## Update
 
-Since this tool is still in development, bugs are being identified and addressed while new features are continuously integrated. To ensure users benefit from these bug fixes and additions, it's essential to have the latest version installed. Hence, a version check mechanism has been implemented within the tool. This mechanism automatically compares the installed version on your device with the latest release whenever the tool is accessed. If a disparity is detected between the two versions, you'll receive a prompt to update to the latest version before proceeding. As an example we have:
+`gopamin new` checks the Go module proxy for a newer release and, if there is one, prints a line like this before generating the project:
 
 ```text
-The newest version of the Gopamin CLI is 1.0.13 but the installed version on your system is v1.0.10.
-To get the latest features and likely bugfixes, please install the latest version by running 'go install github.com/bezmoradi/gopamin@1.0.13'
+Gopamin v1.3.0 is available (you have v1.2.0). To update, run: go install github.com/bezmoradi/gopamin@v1.3.0
 ```
+
+The check never blocks: it gives up silently after 3 seconds or on any network error. Other commands (`version`, `help`, completion) don't run it, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off.
 
 ## Guides
 

@@ -1,7 +1,7 @@
 ## Web App Guide
 
 {{if not .Database -}}
-This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -d <database>` for persistence.
+This project was created **without a database**, so it uses an in-memory repository (`internal/adapters/repositories/memory`) (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -d <database>` for persistence.
 
 {{end -}}
 This is a **server-rendered HTML app** (not a JSON API). Visit `http://localhost:8080/users` in a browser to see the user list page (the port is `PORT` in `.env`, default `8080`). The list is **paginated**: when there are more users than fit on a page, a **"Next →"** link appears carrying an opaque `?cursor=…` for the following page.

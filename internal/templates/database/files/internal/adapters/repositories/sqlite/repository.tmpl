@@ -20,12 +20,12 @@ import (
 
 const tableName = "users"
 
-// parseId converts a client-supplied id to the width the id column actually is.
+// parseID converts a client-supplied id to the width the id column actually is.
 // SQLite's INTEGER holds up to 8 bytes, so 64 bits is the right width here — it
 // is stated explicitly rather than inherited from strconv.Atoi's platform-sized
 // int, because the sibling relational adapters deliberately parse narrower to
 // match their 4-byte id columns. Keep this in step with the migration.
-func parseId(id string) (int64, bool) {
+func parseID(id string) (int64, bool) {
 	parsed, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return 0, false
@@ -125,7 +125,7 @@ func (r *Repository) InsertOnce(ctx context.Context, key string, name string) er
 
 {{end}}func (r *Repository) Update(ctx context.Context, id string, newName string) error {
 	// An id the column can't hold can never match a row.
-	numericId, ok := parseId(id)
+	numericID, ok := parseID(id)
 	if !ok {
 		return domain.ErrUserNotFound
 	}
@@ -134,7 +134,7 @@ func (r *Repository) InsertOnce(ctx context.Context, key string, name string) er
 		ctx,
 		fmt.Sprintf("UPDATE %v SET name = ? WHERE id = ?", tableName),
 		newName,
-		numericId,
+		numericID,
 	)
 	if err != nil {
 		return err
@@ -145,7 +145,7 @@ func (r *Repository) InsertOnce(ctx context.Context, key string, name string) er
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
 	// An id the column can't hold can never match a row.
-	numericId, ok := parseId(id)
+	numericID, ok := parseID(id)
 	if !ok {
 		return domain.ErrUserNotFound
 	}
@@ -153,7 +153,7 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(
 		ctx,
 		fmt.Sprintf("DELETE FROM %v WHERE id = ?", tableName),
-		numericId,
+		numericID,
 	)
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 
 func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	// An id the column can't hold can never match a row.
-	numericId, ok := parseId(id)
+	numericID, ok := parseID(id)
 	if !ok {
 		return domain.User{}, domain.ErrUserNotFound
 	}
@@ -176,10 +176,10 @@ func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) 
 			"SELECT id, name FROM %s WHERE id = ?",
 			tableName,
 		),
-		numericId,
+		numericID,
 	)
 
-	if err := row.Scan(&user.Id, &user.Name); err != nil {
+	if err := row.Scan(&user.ID, &user.Name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.User{}, domain.ErrUserNotFound
 		}
@@ -199,7 +199,7 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 	// Keyset pagination: the cursor is the last id from the previous page,
 	// base64-encoded. Ordering by the integer primary key gives a stable,
 	// gap-free walk; id > 0 selects everything for the first (cursor-less) page.
-	var afterId int64
+	var afterID int64
 	if cursor != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
 		if err != nil {
@@ -207,18 +207,18 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 		}
 		// A cursor outside the id column's range was never one we issued, so
 		// it's a malformed token (400), not something to hand to the driver.
-		parsed, ok := parseId(string(decoded))
+		parsed, ok := parseID(string(decoded))
 		if !ok {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		afterId = parsed
+		afterID = parsed
 	}
 
 	// Fetch one extra row to learn whether a further page exists.
 	rows, err := r.db.QueryContext(
 		ctx,
 		fmt.Sprintf("SELECT id, name FROM %v WHERE id > ? ORDER BY id ASC LIMIT ?", tableName),
-		afterId,
+		afterID,
 		limit+1,
 	)
 	if err != nil {
@@ -229,7 +229,7 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 	var users []domain.User
 	for rows.Next() {
 		var user domain.User
-		err := rows.Scan(&user.Id, &user.Name)
+		err := rows.Scan(&user.ID, &user.Name)
 		if err != nil {
 			return domain.Page{}, err
 		}
@@ -242,7 +242,7 @@ func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (do
 	page := domain.Page{Items: users}
 	if len(users) > limit {
 		page.Items = users[:limit]
-		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].ID))
 	}
 
 	return page, nil

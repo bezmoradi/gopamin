@@ -1,14 +1,12 @@
 {{- $isWeb := eq .ProjectType "web-app" -}}
 {{- $isWorker := eq .ProjectType "worker" -}}
-{{- $isHello := eq .ProjectType "hello-world" -}}
 {{- $isGraphql := and (eq .ProjectType "api") (eq .Platform "graphql") -}}
 {{- $isRest := and (eq .ProjectType "api") (ne .Platform "graphql") -}}
 {{- $hasHTTP := or (eq .ProjectType "api") (eq .ProjectType "web-app") -}}
 {{- $hasRealDB := ne .Database "" -}}
-{{- $usesMock := and (or (eq .ProjectType "api") (eq .ProjectType "web-app")) (eq .Database "") -}}
+{{- $usesMemory := and (or (eq .ProjectType "api") (eq .ProjectType "web-app")) (eq .Database "") -}}
 {{- $hasRepo := or (ne .Database "") (or (eq .ProjectType "api") (eq .ProjectType "web-app")) -}}
 {{- $hasBroker := ne .Broker "" -}}
-{{- $hasDomain := or (ne .ProjectType "hello-world") (ne .Database "") -}}
 {{- $hasObservability := ne .Observability "" -}}
 {{- $hasAuth := ne .Auth "" -}}
 # AGENTS.md
@@ -66,7 +64,9 @@ internal/
 {{- end}}
 {{- if $hasRepo}}
     repositories/
-      mock/  # in-memory repository{{if $usesMock}} (runtime store — NOT durable){{else}} (used by service unit tests){{end}}
+{{- if $usesMemory}}
+      memory/  # in-memory repository (runtime store — NOT durable)
+{{- end}}
 {{- if $hasRealDB}}
       {{.Database}}/  # durable {{.Database}} repository
 {{- end}}
@@ -135,8 +135,8 @@ This project ships **no CI**, so nothing runs the check automatically yet. Wire 
 - Message broker: `{{.Broker}}` — producer + consumer alongside the HTTP server (`internal/adapters/brokers/{{.Broker}}`); see [Broker workflow](#broker-workflow).
 {{- end}}
 {{- end}}
-{{- if $usesMock}}
-- Datastore: in-memory mock (`internal/adapters/repositories/mock`) — no database selected, so data is **not durable** and not production-safe.
+{{- if $usesMemory}}
+- Datastore: in-memory (`internal/adapters/repositories/memory`) — no database selected, so data is **not durable** and not production-safe.
 {{- else if $hasRealDB}}
 - Database: `{{.Database}}` — repository in `internal/adapters/repositories/{{.Database}}`
 {{- end}}
@@ -306,7 +306,7 @@ This project exports **traces and metrics** over OTLP/gRPC to a collector. The s
 - **Fail-open:** if the collector is unreachable the app still starts and {{if $hasHTTP}}serves{{else}}runs{{end}}; export errors are silenced (`otel.SetErrorHandler`) so they don't flood logs. Buffered telemetry flushes on shutdown{{if $hasHTTP}}, after the HTTP server drains{{else}}, after the consumer goroutine is joined{{end}}.
 - **Adding instrumentation:** do it in **adapters** or `cmd`, never the core. Grab a tracer with `otel.Tracer("name")` and start a span from the request/message `context.Context`. A business-logic span belongs behind a port, not a direct SDK import in `services`.
 {{- if $hasHTTP}}
-- **Route labels:** the HTTP wrap is framework-agnostic, so spans/metrics are **not** split per route (every endpoint reports route `/`). For per-endpoint RED metrics, add framework middleware (`otelecho`/`otelgin`/…).
+- **Route labels:** {{if eq .Platform "graphql"}}every request is one `/graphql` span, so per-operation timing needs resolver-level spans.{{else}}span names follow the route template (`GET {{if $isWeb}}/users{{else}}/api/v1/users{{end}}/{id}`; see `spanName` in `cmd/server`, and keep it in step with the routes).{{end}} Metrics aren't split per route: the HTTP wrap is framework-agnostic and doesn't see the framework's routes, so for per-endpoint RED metrics add framework middleware (`otelecho`/`otelgin`/…).
 {{- end}}
 {{- end}}
 {{- if $hasAuth}}
@@ -320,7 +320,7 @@ Every application route requires a bearer token; a demo `POST /login` issues one
 - **Tokens:** **HS256**, algorithm **pinned** (`WithValidMethods`) so `alg:none` and RS256→HS256 confusion are rejected; `iss` and `aud` are issued and checked (`JWT_ISSUER`, `JWT_AUDIENCE`), so another service that shares the secret but not both names can't mint accepted tokens.
 - **Password:** `AUTH_PASSWORD_HASH` is PBKDF2-HMAC-SHA256 with 600,000 iterations (standard library `crypto/pbkdf2`). The password is checked even for an unknown username, so timing doesn't reveal which usernames exist.
 - **Login throttling:** `/login` allows 5 attempts per username and 20 per client address in each one-minute window, then answers `429` with `Retry-After`; a success clears the username's counter. Every attempt is logged as `auth.login.success`, `auth.login.failure` or `auth.login.throttled`, with the client address and username. Limits of this in-memory limiter: it is **per instance** (N replicas allow N times the attempts); behind a reverse proxy every client shares the proxy's address, so derive the client from the proxy's forwarding header only once you trust that proxy; anyone can **lock out a known username** for a minute by spending its 5 attempts; it tracks at most 10,000 keys and, once full of live windows, refuses new keys until one expires. Put a shared limiter (gateway or Redis) in front for production.
-- **All-or-nothing:** the auth middleware wraps the whole framework handler, so **every** app route is protected; the only public endpoints are `/healthz`, `/readyz`, and `/login`. For mixed public/protected app routes, add per-framework middleware (echo groups, chi sub-routers, …).
+- **All-or-nothing:** the auth middleware wraps the whole framework handler, so **every** app route is protected; the only public endpoints are `/healthz`, `/readyz`{{if .OpenAPI}}, `/openapi.yaml`, `/swagger/`{{end}} and `/login`. For mixed public/protected app routes, add per-framework middleware (echo groups, chi sub-routers, …).
 {{- if $isGraphql}}
 - **GraphQL note:** `/graphql` is fully behind the bearer token — send it in `Authorization`. Introspection, when enabled, requires a token too; expose public queries via per-framework middleware if you need them.
 {{- end}}
@@ -448,7 +448,7 @@ Configuration is loaded from `.env` at the project root (via `godotenv`). Real s
 make test          # go test ./...
 make test-cover    # run tests and open an HTML coverage report
 ```
-{{if $hasRepo}}The service layer is unit-tested against the in-memory **mock** repository (`internal/adapters/repositories/mock`), so tests need no running {{if $hasBroker}}database or broker{{else}}database{{end}}. {{end}}Tests are co-located (`*_test.go`). Note the service test imports the mock adapter — that deliberately crosses a layer and is excluded from `make arch` (via `excludeFiles` in `.go-arch-lint.yml`); enforce boundaries on production code, not tests.
+{{if $hasRepo}}The service layer is unit-tested against a fake repository defined in the test itself (`fakeRepository` in `internal/core/user/services`), so tests need no running {{if $hasBroker}}database or broker{{else}}database{{end}} and import no adapter. {{end}}Tests are co-located (`*_test.go`). `make arch` skips test files (`excludeFiles` in `.go-arch-lint.yml`), so a test may wire real adapters; boundaries are enforced on production code.
 
 ## Adding a feature
 
@@ -469,5 +469,5 @@ To handle a new message type: add the domain type and a service method, then dis
 ## Conventions
 - Keep everything under `internal/core/**` free of framework, database, and HTTP imports (`make arch` enforces this).
 - Adapters translate between the outside world and domain types; they hold no business rules.
-- Co-locate tests (`*_test.go`); the service layer is unit-tested against the in-memory mock repository.
+- Co-locate tests (`*_test.go`); the service layer is unit-tested against a fake repository defined in its test file.
 - Run `gofmt`, `go vet ./...`, `go fix ./...` (Go 1.27 modernizers; preview with `make fix-check`), `make lint` (golangci-lint), and `make arch` before committing.

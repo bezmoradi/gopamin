@@ -1,0 +1,114 @@
+// Package memory is an in-memory user repository: the datastore of a project
+// generated without -d. Data lives in the process and is lost on restart, so it
+// is for trying the project out, not for production.
+package memory
+
+import (
+	"context"
+	"encoding/base64"
+	"sync"
+
+	"{{.Name}}/internal/core/user/domain"
+
+	"github.com/google/uuid"
+)
+
+// Repository keeps users in insertion order.
+type Repository struct {
+	mu    sync.RWMutex
+	users []domain.User
+}
+
+func New() *Repository {
+	return &Repository{}
+}
+
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	id := uuid.New()
+	r.users = append(r.users, domain.User{ID: id.String(), Name: name})
+
+	return id.String(), nil
+}
+
+func (r *Repository) Update(ctx context.Context, id string, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for index, u := range r.users {
+		if id == u.ID {
+			r.users[index].Name = name
+			return nil
+		}
+	}
+
+	return domain.ErrUserNotFound
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for index, u := range r.users {
+		if id == u.ID {
+			r.users = append(r.users[:index], r.users[index+1:]...)
+			return nil
+		}
+	}
+
+	return domain.ErrUserNotFound
+}
+
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, u := range r.users {
+		if id == u.ID {
+			return u, nil
+		}
+	}
+
+	return domain.User{}, domain.ErrUserNotFound
+}
+
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// The in-memory slice is kept in insert order, so the cursor is simply the
+	// id of the last row a previous page returned; we resume just after it.
+	start := 0
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+		afterID := string(decoded)
+		found := false
+		for i, u := range r.users {
+			if u.ID == afterID {
+				start = i + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			return domain.Page{}, domain.ErrInvalidCursor
+		}
+	}
+
+	end := len(r.users)
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+
+	page := domain.Page{Items: append([]domain.User(nil), r.users[start:end]...)}
+	if end < len(r.users) {
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(r.users[end-1].ID))
+	}
+
+	return page, nil
+}

@@ -15,7 +15,7 @@ import (
 // names, and query text. Log it if you need it; do not render it.
 const internalFailure = "internal server error"
 
-func (router router) registerUserRoutes() {
+func (router *router) registerUserRoutes() {
 	group := router.engine.Group(router.globalPrefix)
 
 	group.GET("", router.IndexHandler)
@@ -28,7 +28,7 @@ func (router router) registerUserRoutes() {
 
 }
 
-func (router router) CreateUserHandler(c *echo.Context) error {
+func (router *router) CreateUserHandler(c *echo.Context) error {
 	if err := c.Request().ParseForm(); err != nil {
 		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
 			return c.String(http.StatusRequestEntityTooLarge, "request body too large")

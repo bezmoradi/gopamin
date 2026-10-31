@@ -124,7 +124,7 @@ func TestArchLintTemplateRendersValidConfig(t *testing.T) {
 	shapes := []sampleProject{
 		{ProjectType: "api", Platform: "echo", Broker: "kafka", Database: "postgres"},       // all components
 		{ProjectType: "api", Platform: "graphql", Database: "mysql"},                        // no api-response, no brokers
-		{ProjectType: "api", Platform: "chi"},                                               // no db (mock), no brokers
+		{ProjectType: "api", Platform: "chi"},                                               // no db (memory store), no brokers
 		{ProjectType: "web-app", Platform: "gin", Database: "mongodb"},                      // web, no api-response
 		{ProjectType: "web-app", Platform: "echo", Broker: "redis"},                         // web + brokers, no db
 		{ProjectType: "worker", Broker: "rabbitmq", Database: "postgres"},                   // core + brokers, no handlers

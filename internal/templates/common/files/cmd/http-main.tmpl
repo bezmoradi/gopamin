@@ -24,7 +24,7 @@ import (
 {{- end}}
 	"{{.Name}}/internal/adapters/handlers/{{.Platform}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
-	"{{.Name}}/internal/adapters/repositories/{{if .Database}}{{.Database}}{{else}}mock{{end}}"
+	"{{.Name}}/internal/adapters/repositories/{{if .Database}}{{.Database}}{{else}}memory{{end}}"
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/services"
 )
@@ -54,7 +54,8 @@ func run(logger shared.Logger) error {
 	defer func() { _ = db.Close() }()
 {{- else}}
 
-	db := &mock.MockRepository{}
+	// No -d: an in-memory store, lost on restart.
+	db := memory.New()
 {{- end}}
 {{- if .Broker}}
 
