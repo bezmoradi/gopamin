@@ -139,9 +139,11 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     healthcheck:
-      # check_port_connectivity, not ping: the node answers ping seconds before
-      # the AMQP listener accepts connections.
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      # Connect to the AMQP port itself: the node answers `rabbitmq-diagnostics
+      # ping` seconds before the listener accepts connections. Not the CLI at
+      # all: run as root before the broker has written its Erlang cookie, it
+      # writes one the broker can't read, and the broker exits.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5672"]
       interval: 10s
       timeout: 10s
       retries: 5
