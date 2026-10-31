@@ -433,6 +433,7 @@ Apply the migrations (`make migrate-up`) before the first start; the app doesn't
 Configuration is loaded from `.env` at the project root (via `godotenv`). Real shell environment variables take precedence over `.env`, so you can override any key inline{{if $hasHTTP}} (e.g. `PORT=9000 make run`){{else}} (e.g. `LOG_LEVEL=debug make run`){{end}}.
 
 {{if $hasHTTP}}- `PORT` — HTTP listen port (default `8080`).
+{{end}}{{if eq .Platform "gin"}}- `GIN_MODE` — unset runs Gin in release mode; `debug` adds Gin's route table and warnings on stdout.
 {{end}}{{if $hasRealDB}}{{if eq .Database "sqlite"}}- `SQLITE_DB_URL` — the SQLite database file path (embedded; default `./test.db`, no server).
 {{else if eq .Database "badgerdb"}}- BadgerDB is embedded and writes its data under `./badger` — it has no connection settings in `.env`.
 {{else if eq .Database "dynamodb"}}- `DYNAMODB_ENDPOINT` (DynamoDB Local; unset for AWS), `DYNAMODB_REGION`, and `DYNAMODB_ACCESS_KEY_ID`/`DYNAMODB_SECRET_ACCESS_KEY`. Set both keys or neither: with neither, the AWS SDK's default credential chain (profile, SSO, or the ECS/EC2/EKS role) supplies them.

@@ -12,6 +12,7 @@ import (
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,12 @@ type router struct {
 }
 
 func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	// Gin starts in debug mode, which prints its route table and warnings to
+	// stdout, past the configured logger. Use release mode unless GIN_MODE is set
+	// (GIN_MODE=debug brings that output back).
+	if os.Getenv(gin.EnvGinMode) == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	r := &router{
 		engine:       gin.New(),
 		globalPrefix: "/api/v1",
