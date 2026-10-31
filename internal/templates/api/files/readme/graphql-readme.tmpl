@@ -31,8 +31,10 @@ The server refuses to start when a `JWT_*`/`AUTH_*` value is missing, too short 
   `{ users(limit: 20, cursor: "") { items { id name } next_cursor } }`
 - **Fetch one:** `{ user(id: "<USER_ID>") { id name } }`
 - **Create:** `mutation { create(name: "John Doe") }` — returns the new user's id
-- **Update:** `mutation { update(id: "<USER_ID>", name: "Jane Doe") }` — returns the affected row count
-- **Delete:** `mutation { delete(id: "<USER_ID>") }` — returns the affected row count
+- **Update:** `mutation { update(id: "<USER_ID>", name: "Jane Doe") { id name } }` — returns the updated user
+- **Delete:** `mutation { delete(id: "<USER_ID>") }` — returns `true`
+
+A missing id fails both with the error `user not found`.
 {{if .Broker}}
 ### Events
 

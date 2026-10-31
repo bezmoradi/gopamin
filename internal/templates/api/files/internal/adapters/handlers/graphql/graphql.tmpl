@@ -304,8 +304,8 @@ func newSchema(service ports.UserServiceInterface, logger shared.Logger) graphql
 				},
 			},
 			"update": &graphql.Field{
-				Type:        graphql.String,
-				Description: "Update user by ID",
+				Type:        userType,
+				Description: "Update user by ID; returns the updated user",
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Type: graphql.NewNonNull(graphql.String),
@@ -320,16 +320,16 @@ func newSchema(service ports.UserServiceInterface, logger shared.Logger) graphql
 						return nil, errors.New("id argument is required and must be a string")
 					}
 					name, _ := params.Args["name"].(string)
-					rowsAffected, err := service.Update(params.Context, id, name)
+					user, err := service.Update(params.Context, id, name)
 					if err != nil {
 						return nil, sanitize("update user", err)
 					}
-					return rowsAffected, nil
+					return user, nil
 				},
 			},
 			"delete": &graphql.Field{
-				Type:        graphql.String,
-				Description: "Delete user by ID",
+				Type:        graphql.Boolean,
+				Description: "Delete user by ID; returns true",
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Type: graphql.NewNonNull(graphql.String),
@@ -340,11 +340,10 @@ func newSchema(service ports.UserServiceInterface, logger shared.Logger) graphql
 					if !ok {
 						return nil, errors.New("id argument is required and must be a string")
 					}
-					rowsAffected, err := service.Delete(params.Context, id)
-					if err != nil {
+					if err := service.Delete(params.Context, id); err != nil {
 						return nil, sanitize("delete user", err)
 					}
-					return rowsAffected, nil
+					return true, nil
 				},
 			},
 		},

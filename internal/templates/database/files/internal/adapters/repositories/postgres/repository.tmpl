@@ -5,10 +5,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/user/domain"
-	"{{.Name}}/internal/core/shared"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
+	"time"
+
+	"{{.Name}}/internal/core/user/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,44 +35,65 @@ func parseId(id string) (int32, bool) {
 	return int32(parsed), true
 }
 
-type connection struct {
+// connectTimeout bounds the startup ping, so a wrong host or a firewalled port
+// stops the app within seconds instead of on the first request.
+const connectTimeout = 5 * time.Second
+
+// Repository stores users in Postgres.
+type Repository struct {
 	db *pgxpool.Pool
-	logger shared.Logger
 }
 
-func New(logger shared.Logger) (*connection, error) {
-	databaseName := os.Getenv("POSTGRES_DATABASE")
-	databasePassword := os.Getenv("POSTGRES_PASSWORD")
-	databaseUsername := os.Getenv("POSTGRES_USERNAME")
-	databaseHost := os.Getenv("POSTGRES_HOST")
-	databasePort, err := strconv.Atoi(os.Getenv("POSTGRES_PORT"))
-	if err != nil {
-		return nil, err
+// New connects with the POSTGRES_* environment and pings the server, so a wrong
+// host, port or password stops the app at startup. POSTGRES_SSLMODE must be set:
+// verify-full for a real server, disable only for the local compose database.
+func New() (*Repository, error) {
+	sslmode := os.Getenv("POSTGRES_SSLMODE")
+	if sslmode == "" {
+		return nil, errors.New("POSTGRES_SSLMODE is not set: use verify-full for a real server, disable for the local compose database")
 	}
 
-	db, err := pgxpool.New(
-		context.Background(),
-		fmt.Sprintf(
-			"postgres://%v:%v@%v:%d/%v",
-			databaseUsername,
-			databasePassword,
-			databaseHost,
-			databasePort,
-			databaseName,
-		),
-	)
+	// url.URL escapes the credentials, so a password containing @, : or / can't
+	// change which host or database the pool connects to.
+	dsn := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(os.Getenv("POSTGRES_USERNAME"), os.Getenv("POSTGRES_PASSWORD")),
+		Host:     net.JoinHostPort(os.Getenv("POSTGRES_HOST"), os.Getenv("POSTGRES_PORT")),
+		Path:     "/" + os.Getenv("POSTGRES_DATABASE"),
+		RawQuery: url.Values{"sslmode": {sslmode}}.Encode(),
+	}
+
+	db, err := pgxpool.New(context.Background(), dsn.String())
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %w", err)
+		return nil, fmt.Errorf("invalid Postgres configuration: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+	if err := db.Ping(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("cannot reach Postgres: %w", err)
 	}
 
 	// Schema is owned by the versioned migrations in migrations/ (run `make
 	// migrate-up`), not created here — so the app never races on DDL at startup.
-	return &connection{db: db, logger: logger}, nil
+	return &Repository{db: db}, nil
 }
 
-func (c *connection) Insert(ctx context.Context, name string) (string, error) {
+// Ping reports whether Postgres answers; /readyz calls it.
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.db.Ping(ctx)
+}
+
+// Close releases the connection pool.
+func (r *Repository) Close() error {
+	r.db.Close()
+	return nil
+}
+
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	var insertedId int64
-	err := c.db.QueryRow(
+	err := r.db.QueryRow(
 		ctx,
 		fmt.Sprintf(
 			"INSERT INTO %v (name) VALUES ($1) RETURNING id",
@@ -84,14 +108,14 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	return strconv.FormatInt(insertedId, 10), nil
 }
 
-func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
-	// An id the column can't hold can never match a row: no rows affected.
+func (r *Repository) Update(ctx context.Context, id string, newName string) error {
+	// An id the column can't hold can never match a row.
 	numericId, ok := parseId(id)
 	if !ok {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	commandTag, err := c.db.Exec(
+	commandTag, err := r.db.Exec(
 		ctx,
 		fmt.Sprintf(
 			"UPDATE %v SET name = $1 WHERE id = $2",
@@ -101,20 +125,23 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 		numericId,
 	)
 	if err != nil {
-		return 0, err
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return domain.ErrUserNotFound
 	}
 
-	return commandTag.RowsAffected(), nil
+	return nil
 }
 
-func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
-	// An id the column can't hold can never match a row: no rows affected.
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	// An id the column can't hold can never match a row.
 	numericId, ok := parseId(id)
 	if !ok {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	commandTag, err := c.db.Exec(
+	commandTag, err := r.db.Exec(
 		ctx,
 		fmt.Sprintf(
 			"DELETE FROM %v WHERE id = $1",
@@ -123,13 +150,16 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 		numericId,
 	)
 	if err != nil {
-		return 0, err
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return domain.ErrUserNotFound
 	}
 
-	return commandTag.RowsAffected(), nil
+	return nil
 }
 
-func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	// An id the column can't hold can never match a row.
 	numericId, ok := parseId(id)
 	if !ok {
@@ -138,7 +168,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 
 	var user domain.User
 
-	err := c.db.QueryRow(
+	err := r.db.QueryRow(
 		ctx,
 		fmt.Sprintf(
 			"SELECT id, name FROM %v WHERE id = $1",
@@ -157,7 +187,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return user, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Self-defense: the service always clamps limit into [1, max], but a direct
 	// caller must not be able to make this method panic on page.Items[limit-1].
 	if limit < 1 {
@@ -183,7 +213,7 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	}
 
 	// Fetch one extra row to learn whether a further page exists.
-	rows, err := c.db.Query(
+	rows, err := r.db.Query(
 		ctx,
 		fmt.Sprintf(
 			"SELECT id, name FROM %v WHERE id > $1 ORDER BY id ASC LIMIT $2",

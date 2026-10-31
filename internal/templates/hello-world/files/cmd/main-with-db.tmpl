@@ -47,19 +47,18 @@ func fetch(us ports.UserServiceInterface, logger shared.Logger, id string) {
 }
 
 func update(us ports.UserServiceInterface, logger shared.Logger, id string, newName string) {
-	rowsAffected, err := us.Update(context.Background(), id, newName)
+	user, err := us.Update(context.Background(), id, newName)
 	if err != nil {
 		logger.Fatal(err)
 	}
-	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+	logger.Info("user updated", "id", user.Id, "name", user.Name)
 }
 
 func deleteUser(us ports.UserServiceInterface, logger shared.Logger, id string) {
-	rowsAffected, err := us.Delete(context.Background(), id)
-	if err != nil {
+	if err := us.Delete(context.Background(), id); err != nil {
 		logger.Fatal(err)
 	}
-	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+	logger.Info("user deleted", "id", id)
 }
 
 func fetchAll(us ports.UserServiceInterface, logger shared.Logger) {
@@ -82,10 +81,11 @@ func fetchAll(us ports.UserServiceInterface, logger shared.Logger) {
 
 func main() {
 	logger := {{.Logger}}.New()
-	db, err := {{.Database}}.New(logger)
+	db, err := {{.Database}}.New()
 	if err != nil {
 		logger.Fatal(err)
 	}
+	defer func() { _ = db.Close() }()
 	us := services.NewUserService(db)
 
 	// fetchAll runs below. The other helpers show the remaining operations — swap in

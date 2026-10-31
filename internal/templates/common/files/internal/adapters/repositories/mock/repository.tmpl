@@ -14,8 +14,8 @@ type MockRepository struct {
 	mu            sync.RWMutex
 	Users         []domain.User
 	SpyOnInsert   func(ctx context.Context, name string) (string, error)
-	SpyOnUpdate   func(ctx context.Context, id string, name string) (int64, error)
-	SpyOnDelete   func(ctx context.Context, id string) (int64, error)
+	SpyOnUpdate   func(ctx context.Context, id string, name string) error
+	SpyOnDelete   func(ctx context.Context, id string) error
 	SpyOnFetch    func(ctx context.Context, id string) (domain.User, error)
 	SpyOnFetchAll func(ctx context.Context, limit int, cursor string) (domain.Page, error)
 }
@@ -34,7 +34,7 @@ func (m *MockRepository) Insert(ctx context.Context, name string) (string, error
 	return id.String(), nil
 }
 
-func (m *MockRepository) Update(ctx context.Context, id string, name string) (int64, error) {
+func (m *MockRepository) Update(ctx context.Context, id string, name string) error {
 	if m.SpyOnUpdate != nil {
 		return m.SpyOnUpdate(ctx, id, name)
 	}
@@ -45,14 +45,14 @@ func (m *MockRepository) Update(ctx context.Context, id string, name string) (in
 	for index, u := range m.Users {
 		if id == u.Id {
 			m.Users[index].Name = name
-			return 1, nil
+			return nil
 		}
 	}
 
-	return 0, nil
+	return domain.ErrUserNotFound
 }
 
-func (m *MockRepository) Delete(ctx context.Context, id string) (int64, error) {
+func (m *MockRepository) Delete(ctx context.Context, id string) error {
 	if m.SpyOnDelete != nil {
 		return m.SpyOnDelete(ctx, id)
 	}
@@ -63,11 +63,11 @@ func (m *MockRepository) Delete(ctx context.Context, id string) (int64, error) {
 	for index, u := range m.Users {
 		if id == u.Id {
 			m.Users = append(m.Users[:index], m.Users[index+1:]...)
-			return 1, nil
+			return nil
 		}
 	}
 
-	return 0, nil
+	return domain.ErrUserNotFound
 }
 
 func (m *MockRepository) Fetch(ctx context.Context, id string) (domain.User, error) {

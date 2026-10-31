@@ -5,9 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/user/domain"
-	"{{.Name}}/internal/core/shared"
 	"os"
+	"time"
+
+	"{{.Name}}/internal/core/user/domain"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -21,9 +22,14 @@ type mongodbUser struct {
 	Name string             `json:"name" bson:"name"`
 }
 
-type connection struct {
-	db *mongo.Client
-	logger shared.Logger
+// connectTimeout bounds the startup ping, so a wrong host or a firewalled port
+// stops the app within seconds instead of on the first request.
+const connectTimeout = 5 * time.Second
+
+// Repository stores users in MongoDB.
+type Repository struct {
+	client     *mongo.Client
+	collection *mongo.Collection
 }
 
 func mapMongodbToUser(m mongodbUser) domain.User {
@@ -33,34 +39,51 @@ func mapMongodbToUser(m mongodbUser) domain.User {
 	}
 }
 
-func New(logger shared.Logger) (*connection, error) {
-	host := os.Getenv("MONGODB_HOST")
-	port := os.Getenv("MONGODB_PORT")
-	username := os.Getenv("MONGODB_USERNAME")
-	password := os.Getenv("MONGODB_PASSWORD")
-
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI(fmt.Sprintf("mongodb://%s:%s@%s:%s", username, password, host, port)))
-	if err != nil {
-		return nil, fmt.Errorf("cannot connect to MongoDB: %w", err)
+// New connects with MONGODB_URI, a full connection string (credentials, hosts,
+// replica set, tls=true and so on), and pings the server, so a wrong address or
+// password stops the app at startup. MONGODB_NAME is the database.
+func New() (*Repository, error) {
+	uri := os.Getenv("MONGODB_URI")
+	if uri == "" {
+		return nil, errors.New("MONGODB_URI is not set")
+	}
+	database := os.Getenv("MONGODB_NAME")
+	if database == "" {
+		return nil, errors.New("MONGODB_NAME is not set")
 	}
 
-	if err := mongoClient.Ping(context.Background(), nil); err != nil {
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MongoDB configuration: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(context.Background())
 		return nil, fmt.Errorf("cannot reach MongoDB: %w", err)
 	}
 
-	c := &connection{db: mongoClient, logger: logger}
-
-	return c, nil
+	return &Repository{
+		client:     client,
+		collection: client.Database(database).Collection(collectionName),
+	}, nil
 }
 
-func (c *connection) GetCollection() *mongo.Collection {
-	database := os.Getenv("MONGODB_NAME")
-
-	return c.db.Database(database).Collection(collectionName)
+// Ping reports whether MongoDB answers; /readyz calls it.
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx, nil)
 }
 
-func (c *connection) Insert(ctx context.Context, name string) (string, error) {
-	result, err := c.GetCollection().InsertOne(
+// Close disconnects from MongoDB.
+func (r *Repository) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+	return r.client.Disconnect(ctx)
+}
+
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
+	result, err := r.collection.InsertOne(
 		ctx,
 		bson.M{
 			"name": name,
@@ -78,14 +101,14 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	return insertedId.Hex(), nil
 }
 
-func (c *connection) Update(ctx context.Context, id string, name string) (int64, error) {
+func (r *Repository) Update(ctx context.Context, id string, name string) error {
 	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		// A malformed id can never match a document.
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	result, err := c.GetCollection().UpdateOne(
+	result, err := r.collection.UpdateOne(
 		ctx,
 		bson.D{
 			{Key: "_id", Value: objectID},
@@ -99,30 +122,38 @@ func (c *connection) Update(ctx context.Context, id string, name string) (int64,
 		},
 	)
 	if err != nil {
-		return 0, err
+		return err
+	}
+	// MatchedCount, not ModifiedCount: setting the name a user already has
+	// modifies nothing but still finds the user.
+	if result.MatchedCount == 0 {
+		return domain.ErrUserNotFound
 	}
 
-	return result.ModifiedCount, nil
+	return nil
 }
 
-func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+func (r *Repository) Delete(ctx context.Context, id string) error {
 	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		// A malformed id can never match a document.
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	result, err := c.GetCollection().DeleteOne(ctx, bson.D{
+	result, err := r.collection.DeleteOne(ctx, bson.D{
 		{Key: "_id", Value: objectID},
 	})
 	if err != nil {
-		return 0, err
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return domain.ErrUserNotFound
 	}
 
-	return result.DeletedCount, nil
+	return nil
 }
 
-func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		// A malformed id can never match a document.
@@ -134,7 +165,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 		{Key: "_id", Value: objectID},
 	}
 
-	err = c.GetCollection().FindOne(ctx, filter).Decode(&user)
+	err = r.collection.FindOne(ctx, filter).Decode(&user)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return domain.User{}, domain.ErrUserNotFound
@@ -145,7 +176,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return mapMongodbToUser(user), nil
 }
 
-func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Self-defense: the service always clamps limit into [1, max], but a direct
 	// caller must not be able to make this method panic on page.Items[limit-1].
 	if limit < 1 {
@@ -175,7 +206,7 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 		SetSort(sort).
 		SetLimit(int64(limit) + 1)
 
-	mongoCursor, err := c.GetCollection().Find(ctx, filter, opts)
+	mongoCursor, err := r.collection.Find(ctx, filter, opts)
 	if err != nil {
 		return domain.Page{}, err
 	}

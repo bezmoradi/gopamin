@@ -160,7 +160,7 @@ Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "da
 | `GET` | `/api/v1/users?limit=&cursor=` | list users (paginated) | `200` |
 | `GET` | `/api/v1/users/:id` | fetch one | `200` |
 | `POST` | `/api/v1/users` | create — body `{"name":"..."}` | `201` |
-| `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}` | `200` |
+| `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}`; returns the user | `200` |
 | `DELETE` | `/api/v1/users/:id` | delete | `200` |
 
 Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `413` body over 1 MiB · `415` write without `Content-Type: application/json` · `422` validation (e.g. empty name) · `500` datastore failure{{if .PublishesEvents}}, or `{"error":"Event publish failure"}` when the row was written but its event never reached **{{.Broker}}** — the two are distinguished so a broker outage doesn't page whoever owns the database. On that one the row **is** committed, so a retry duplicates it rather than completing it (an outbox would be the fix; see `internal/core/user/services`){{end}}. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
@@ -207,7 +207,7 @@ Single endpoint: `POST /graphql` with a JSON body. There is no Playground or Gra
 - Type `User { id: String, name: String }`
 - Type `UserPage { items: [User], next_cursor: String }`
 - Queries: `user(id: String): User` · `users(limit: Int, cursor: String): UserPage`
-- Mutations: `create(name: String!): String` · `update(id: String!, name: String): String` · `delete(id: String!): String`
+- Mutations: `create(name: String!): String` (the new id) · `update(id: String!, name: String): User` · `delete(id: String!): Boolean` (a missing id is the error `user not found`)
 
 `users` is cursor-paginated exactly like the REST list (opaque `next_cursor`, default limit `20`, cap `100`); pass a previous page's `next_cursor` as the `cursor` argument to continue.
 
@@ -260,7 +260,9 @@ Two orchestration endpoints are mounted at the transport layer (in `cmd/server`)
 | `GET` | `/healthz` | liveness — the process is running | `200 {"status":"ok"}` |
 | `GET` | `/readyz` | readiness — ready to accept traffic | `200 {"status":"ready"}` |
 
-Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kubernetes). The handlers live in `internal/adapters/handlers/health`; extend `Ready` to check critical dependencies (database, broker) and return `503` when any is unavailable, so the readiness probe can gate traffic.
+Wire `/healthz` to a liveness probe and `/readyz` to a readiness probe (e.g. Kubernetes). The handlers live in `internal/adapters/handlers/health`. {{if $hasRealDB}}`/readyz` pings the `{{.Database}}` repository (2 s budget) and answers `503 {"status":"unavailable","failed":["database"]}` while it is down; the cause goes to the log. {{end}}To probe another dependency, pass one more `health.Check` to `server.Serve` in `cmd/main.go`.{{if $hasRealDB}}
+
+At startup the repository pings `{{.Database}}`{{if not (or (eq .Database "sqlite") (eq .Database "badgerdb"))}} with a 5 s budget{{end}}, so a wrong host, port or password stops the app with an error instead of failing every request.{{end}}
 {{- if .OpenAPI}}
 
 ## API documentation (OpenAPI / Swagger)
@@ -383,7 +385,9 @@ Configuration is loaded from `.env` at the project root (via `godotenv`). Real s
 {{if $hasHTTP}}- `PORT` — HTTP listen port (default `8080`).
 {{end}}{{if $hasRealDB}}{{if eq .Database "sqlite"}}- `SQLITE_DB_URL` — the SQLite database file path (embedded; default `./test.db`, no server).
 {{else if eq .Database "badgerdb"}}- BadgerDB is embedded and writes its data under `./badger` — it has no connection settings in `.env`.
-{{else if eq .Database "dynamodb"}}- `{{.Database}}` endpoint, region, and credentials. See `.env` for the exact keys.
+{{else if eq .Database "dynamodb"}}- `DYNAMODB_ENDPOINT` (DynamoDB Local; unset for AWS), `DYNAMODB_REGION`, and `DYNAMODB_ACCESS_KEY_ID`/`DYNAMODB_SECRET_ACCESS_KEY`. Set both keys or neither: with neither, the AWS SDK's default credential chain (profile, SSO, or the ECS/EC2/EKS role) supplies them.
+{{else if eq .Database "mongodb"}}- `MONGODB_URI` — the full connection string the app uses (credentials, hosts, replica set, `tls=true`); `MONGODB_NAME` — the database. `MONGODB_USERNAME`/`MONGODB_PASSWORD`/`MONGODB_PORT` configure only the compose container.
+{{else if eq .Database "postgres"}}- `POSTGRES_*` connection settings — host, port, database and credentials, plus `POSTGRES_SSLMODE` (required): `disable` only for the local compose database, `verify-full` for a real server.
 {{else}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
 {{end}}{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
 {{end}}{{if .Auth}}- `JWT_SECRET`, `JWT_TTL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` — JWT signing + demo login (see the Authentication section).

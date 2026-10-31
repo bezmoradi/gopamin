@@ -42,13 +42,13 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	rowsAffected, err := router.service.Delete(r.Context(), pathID(r))
-	if err != nil {
-		router.fail(w, "delete user", err)
+	err := router.service.Delete(r.Context(), pathID(r))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
-	if rowsAffected == 0 {
-		http.Error(w, "user not found", http.StatusNotFound)
+	if err != nil {
+		router.fail(w, "delete user", err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -103,17 +103,17 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	rowsAffected, err := router.service.Update(r.Context(), pathID(r), name)
+	_, err = router.service.Update(r.Context(), pathID(r), name)
 	if domain.IsValidationError(err) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	if err != nil {
-		router.fail(w, "update user", err)
+	if errors.Is(err, domain.ErrUserNotFound) {
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
-	if rowsAffected == 0 {
-		http.Error(w, "user not found", http.StatusNotFound)
+	if err != nil {
+		router.fail(w, "update user", err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

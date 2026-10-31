@@ -35,10 +35,11 @@ func main() {
 	logger := {{.Logger}}.New()
 {{- if .Database}}
 
-	repo, err := {{.Database}}.New(logger)
+	repo, err := {{.Database}}.New()
 	if err != nil {
 		logger.Fatal(err)
 	}
+	defer func() { _ = repo.Close() }()
 	userService := services.NewUserService(repo)
 {{- end}}
 

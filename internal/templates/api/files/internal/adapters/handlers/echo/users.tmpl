@@ -45,13 +45,12 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 func (router *router) DeleteUserHandler(c *echo.Context) error {
 	id := c.Param("id")
 
-	rowsAffected, err := router.service.Delete(c.Request().Context(), id)
+	err := router.service.Delete(c.Request().Context(), id)
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
+	}
 	if err != nil {
 		return router.fail(c, "delete user", err)
-	}
-
-	if rowsAffected == 0 {
-		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 	}
 
 	return c.JSON(http.StatusOK, api.Response{
@@ -98,16 +97,16 @@ func (router *router) UpdateUserHandler(c *echo.Context) error {
 		return c.JSON(status, api.Response{Error: label})
 	}
 
-	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)
+	user, err := router.service.Update(c.Request().Context(), c.Param("id"), body.Name)
 	if domain.IsValidationError(err) {
 		return c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
+	}
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 	}
 	if err != nil {
 		return router.fail(c, "update user", err)
 	}
-	if rowsAffected == 0 {
-		return c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
-	}
 
-	return c.JSON(http.StatusOK, api.Response{Message: "User updated successfully", Data: rowsAffected})
+	return c.JSON(http.StatusOK, api.Response{Message: "User updated successfully", Data: api.NewUser(user)})
 }

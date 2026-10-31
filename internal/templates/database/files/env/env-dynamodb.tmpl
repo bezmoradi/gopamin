@@ -1,7 +1,6 @@
-# DynamoDB
-DYNAMODB_HOST=http://localhost
-DYNAMODB_PORT=8000
+# DynamoDB (DynamoDB Local in compose). For AWS, remove DYNAMODB_ENDPOINT and both
+# keys: the SDK then uses its default credential chain (profile, SSO or role).
+DYNAMODB_ENDPOINT=http://localhost:8000
 DYNAMODB_REGION=us-east-1
 DYNAMODB_ACCESS_KEY_ID=dummyAccessKeyID
 DYNAMODB_SECRET_ACCESS_KEY=dummySecretAccessKey
-DYNAMODB_SESSION_TOKEN=dummySessionToken

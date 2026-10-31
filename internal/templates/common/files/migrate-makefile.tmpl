@@ -7,18 +7,21 @@ include .env
 export
 endif
 
+# The credentials are pasted into a URL unescaped: if the password contains a URL
+# reserved character (@ : / ? # %), set DATABASE_URL in .env yourself, with the
+# password percent-encoded.
 {{if eq .Database "postgres" -}}
 MIGRATE_TAGS := postgres
-DATABASE_URL := postgres://$(POSTGRES_USERNAME):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DATABASE)?sslmode=disable
+DATABASE_URL ?= postgres://$(POSTGRES_USERNAME):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DATABASE)?sslmode=$(POSTGRES_SSLMODE)
 {{- else if eq .Database "mysql" -}}
 MIGRATE_TAGS := mysql
-DATABASE_URL := mysql://$(MYSQL_USERNAME):$(MYSQL_PASSWORD)@tcp($(MYSQL_HOST):$(MYSQL_PORT))/$(MYSQL_DATABASE)
+DATABASE_URL ?= mysql://$(MYSQL_USERNAME):$(MYSQL_PASSWORD)@tcp($(MYSQL_HOST):$(MYSQL_PORT))/$(MYSQL_DATABASE)
 {{- else if eq .Database "mariadb" -}}
 MIGRATE_TAGS := mysql
-DATABASE_URL := mysql://$(MARIADB_USERNAME):$(MARIADB_PASSWORD)@tcp($(MARIADB_HOST):$(MARIADB_PORT))/$(MARIADB_DATABASE)
+DATABASE_URL ?= mysql://$(MARIADB_USERNAME):$(MARIADB_PASSWORD)@tcp($(MARIADB_HOST):$(MARIADB_PORT))/$(MARIADB_DATABASE)
 {{- else if eq .Database "sqlite" -}}
 MIGRATE_TAGS := sqlite
-DATABASE_URL := sqlite://$(SQLITE_DB_URL)
+DATABASE_URL ?= sqlite://$(SQLITE_DB_URL)
 {{- end}}
 
 # migrate: the golang-migrate CLI, pinned via `go run …@version` with the driver

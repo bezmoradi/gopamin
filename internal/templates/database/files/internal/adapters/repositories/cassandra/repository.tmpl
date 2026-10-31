@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/user/domain"
-	"{{.Name}}/internal/core/shared"
 	"os"
 	"strconv"
+
+	"{{.Name}}/internal/core/user/domain"
 
 	"github.com/apache/cassandra-gocql-driver/v2"
 )
@@ -16,12 +16,17 @@ import (
 const tableName = "users"
 const keyspace = "test_keyspace"
 
-type connection struct {
+// Repository stores users in Cassandra.
+type Repository struct {
 	session *gocql.Session
-	logger  shared.Logger
 }
 
-func New(logger shared.Logger) (*connection, error) {
+// New connects to CASSANDRA_HOST:CASSANDRA_PORT, creating the keyspace and the
+// table if they don't exist. The keyspace it creates uses SimpleStrategy with
+// replication factor 1, which suits one local node only: on a real cluster,
+// create the keyspace yourself first (NetworkTopologyStrategy, RF 3), and New
+// leaves it as it is.
+func New() (*Repository, error) {
 	databaseHost := os.Getenv("CASSANDRA_HOST")
 	databasePort, err := strconv.Atoi(os.Getenv("CASSANDRA_PORT"))
 	if err != nil {
@@ -57,17 +62,28 @@ func New(logger shared.Logger) (*connection, error) {
 		return nil, err
 	}
 
-	c := &connection{session: session, logger: logger}
-	err = c.CreateTable()
-	if err != nil {
+	r := &Repository{session: session}
+	if err := r.createTable(); err != nil {
+		session.Close()
 		return nil, err
 	}
 
-	return c, nil
+	return r, nil
 }
 
-func (c *connection) CreateTable() error {
-	err := c.session.Query(
+// Ping reports whether a Cassandra node answers; /readyz calls it.
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.session.Query("SELECT release_version FROM system.local").ExecContext(ctx)
+}
+
+// Close closes the session.
+func (r *Repository) Close() error {
+	r.session.Close()
+	return nil
+}
+
+func (r *Repository) createTable() error {
+	err := r.session.Query(
 		fmt.Sprintf(
 			"CREATE TABLE IF NOT EXISTS %v (id UUID PRIMARY KEY, name TEXT)",
 			tableName,
@@ -81,9 +97,9 @@ func (c *connection) CreateTable() error {
 	return nil
 }
 
-func (c *connection) Insert(ctx context.Context, name string) (string, error) {
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	id := gocql.TimeUUID()
-	err := c.session.Query(
+	err := r.session.Query(
 		fmt.Sprintf(
 			"INSERT INTO %v (id, name) VALUES (?, ?)",
 			tableName,
@@ -99,18 +115,18 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	return id.String(), nil
 }
 
-func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
+func (r *Repository) Update(ctx context.Context, id string, newName string) error {
 	// The id column is a UUID; a malformed id can never match a row.
 	if _, err := gocql.ParseUUID(id); err != nil {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
 	// IF EXISTS turns the write into a lightweight transaction. Without it a
 	// Cassandra UPDATE is an upsert: updating an id that was never inserted
 	// silently creates the row and reports success, so a caller could never
-	// see "no such user". The CAS [applied] flag is the honest rows-affected
-	// answer; the LWT round-trip is the price of it.
-	applied, err := c.session.Query(
+	// see "no such user". The CAS [applied] flag says whether the row existed;
+	// the LWT round-trip is the price of it.
+	applied, err := r.session.Query(
 		fmt.Sprintf(
 			"UPDATE %v SET name = ? WHERE id = ? IF EXISTS",
 			tableName,
@@ -120,25 +136,25 @@ func (c *connection) Update(ctx context.Context, id string, newName string) (int
 	).MapScanCASContext(ctx, map[string]any{})
 
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if !applied {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	return 1, nil
+	return nil
 }
 
-func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+func (r *Repository) Delete(ctx context.Context, id string) error {
 	// The id column is a UUID; a malformed id can never match a row.
 	if _, err := gocql.ParseUUID(id); err != nil {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
 	// IF EXISTS for the same reason as Update: a bare Cassandra DELETE always
 	// "succeeds" (it just writes a tombstone), so a missing row could never
 	// surface as not-found.
-	applied, err := c.session.Query(
+	applied, err := r.session.Query(
 		fmt.Sprintf(
 			"DELETE FROM %v WHERE id = ? IF EXISTS",
 			tableName,
@@ -147,23 +163,23 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 	).MapScanCASContext(ctx, map[string]any{})
 
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if !applied {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	return 1, nil
+	return nil
 }
 
-func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	// The id column is a UUID; a malformed id can never match a row.
 	if _, err := gocql.ParseUUID(id); err != nil {
 		return domain.User{}, domain.ErrUserNotFound
 	}
 
 	var user domain.User
-	err := c.session.Query(
+	err := r.session.Query(
 		fmt.Sprintf("SELECT id, name FROM %v WHERE id = ?", tableName),
 		id,
 	).Consistency(gocql.One).ScanContext(ctx, &user.Id, &user.Name)
@@ -178,7 +194,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return user, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Self-defense: the service always clamps limit into [1, max]. Guard anyway —
 	// gocql's PageSize(n) *disables* paging when n <= 0, which would reintroduce
 	// the unbounded scan this feature exists to prevent.
@@ -199,7 +215,7 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 		pageState = decoded
 	}
 
-	iter := c.session.Query(
+	iter := r.session.Query(
 		fmt.Sprintf(
 			"SELECT id, name FROM %s",
 			tableName,

@@ -13,6 +13,9 @@ import (
 	{{- if .Broker}}
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
 	{{- end}}
+{{- if .Database}}
+	"{{.Name}}/internal/adapters/handlers/health"
+{{- end}}
 	"{{.Name}}/internal/adapters/handlers/{{.Platform}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
 	"{{.Name}}/internal/adapters/repositories/{{if .Database}}{{.Database}}{{else}}mock{{end}}"
@@ -26,10 +29,11 @@ func init() {
 func main() {
 	logger := {{.Logger}}.New()
 {{- if .Database}}
-	db, err := {{.Database}}.New(logger)
+	db, err := {{.Database}}.New()
 	if err != nil {
 		logger.Fatal(err)
 	}
+	defer func() { _ = db.Close() }()
 {{- else}}
 	db := &mock.MockRepository{}
 {{- end}}
@@ -63,9 +67,9 @@ func main() {
 	service := services.NewUserService(db)
 {{- end}}
 {{- if eq .Platform "graphql"}}
-	server.Serve({{.Platform}}.NewHandler(service, logger), logger)
+	server.Serve({{.Platform}}.NewHandler(service, logger), logger{{if .Database}}, health.Check{Name: "database", Probe: db.Ping}{{end}})
 {{- else}}
-	server.Serve({{.Platform}}.NewRouter(service, logger), logger)
+	server.Serve({{.Platform}}.NewRouter(service, logger), logger{{if .Database}}, health.Check{Name: "database", Probe: db.Ping}{{end}})
 {{- end}}
 {{- if .Broker}}
 	// Serve returns only once a signal drained the HTTP server; that same signal

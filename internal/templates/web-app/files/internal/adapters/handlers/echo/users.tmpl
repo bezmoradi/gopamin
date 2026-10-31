@@ -48,12 +48,12 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 }
 
 func (router *router) DeleteUserHandler(c *echo.Context) error {
-	rowsAffected, err := router.service.Delete(c.Request().Context(), c.Param("id"))
+	err := router.service.Delete(c.Request().Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.String(http.StatusNotFound, "user not found")
+	}
 	if err != nil {
 		return router.fail(c, "delete user", err)
-	}
-	if rowsAffected == 0 {
-		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }
@@ -100,15 +100,15 @@ func (router *router) UpdateUserHandler(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "malformed form body")
 	}
 	name := c.FormValue("name")
-	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
+	_, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
 	if domain.IsValidationError(err) {
 		return c.String(http.StatusUnprocessableEntity, err.Error())
 	}
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.String(http.StatusNotFound, "user not found")
+	}
 	if err != nil {
 		return router.fail(c, "update user", err)
-	}
-	if rowsAffected == 0 {
-		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }

@@ -109,17 +109,17 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 		return
 	}
 
-	rowsAffected, err := router.service.Update(c.Request.Context(), c.Param("id"), form.Name)
+	_, err := router.service.Update(c.Request.Context(), c.Param("id"), form.Name)
 	if domain.IsValidationError(err) {
 		c.String(http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if err != nil {
-		router.fail(c, "update user", err)
+	if errors.Is(err, domain.ErrUserNotFound) {
+		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	if rowsAffected == 0 {
-		c.String(http.StatusNotFound, "user not found")
+	if err != nil {
+		router.fail(c, "update user", err)
 		return
 	}
 
@@ -127,13 +127,13 @@ func (router router) UpdateUserHandler(c *gin.Context) {
 }
 
 func (router router) DeleteUserHandler(c *gin.Context) {
-	rowsAffected, err := router.service.Delete(c.Request.Context(), c.Param("id"))
-	if err != nil {
-		router.fail(c, "delete user", err)
+	err := router.service.Delete(c.Request.Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	if rowsAffected == 0 {
-		c.String(http.StatusNotFound, "user not found")
+	if err != nil {
+		router.fail(c, "delete user", err)
 		return
 	}
 

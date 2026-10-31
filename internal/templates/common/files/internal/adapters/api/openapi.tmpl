@@ -154,11 +154,11 @@ paths:
               $ref: '#/components/schemas/UserInput'
       responses:
         '200':
-          description: Updated; data is the affected row count.
+          description: Updated; data is the user.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UpdateResponse'
+                $ref: '#/components/schemas/UserResponse'
         '400':
           description: Malformed request body.
           content:
@@ -260,6 +260,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+{{- if .Database}}
+        '503':
+          description: A dependency (the database) failed its check; `failed` names it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+{{- end}}
 components:
 {{- if .Auth}}
   securitySchemes:
@@ -310,15 +318,6 @@ components:
         data:
           type: string
           description: The id of the created user.
-    UpdateResponse:
-      type: object
-      properties:
-        message:
-          type: string
-        data:
-          type: integer
-          format: int64
-          description: Number of rows affected.
     MessageResponse:
       type: object
       properties:
@@ -334,6 +333,13 @@ components:
       properties:
         status:
           type: string
+{{- if .Database}}
+        failed:
+          type: array
+          items:
+            type: string
+          description: The checks that failed (503 only).
+{{- end}}
 {{- if .Auth}}
     LoginRequest:
       type: object

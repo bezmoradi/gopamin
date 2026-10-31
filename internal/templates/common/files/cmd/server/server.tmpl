@@ -30,7 +30,8 @@ import (
 
 // Serve mounts the application handler behind the shared middleware chain, next
 // to the health probes, and runs the server until SIGINT/SIGTERM, then drains it.
-func Serve(app http.Handler, logger shared.Logger) {
+// checks are the dependencies /readyz probes.
+func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -74,7 +75,7 @@ func Serve(app http.Handler, logger shared.Logger) {
 	// the HTTP framework, then delegate the application routes to it.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health.Live)
-	mux.HandleFunc("/readyz", health.Ready)
+	mux.HandleFunc("/readyz", health.Ready(logger, checks...))
 {{- if .OpenAPI}}
 	// API docs: the raw spec plus embedded Swagger UI, both self-contained.
 	mux.HandleFunc("/openapi.yaml", api.SpecHandler())

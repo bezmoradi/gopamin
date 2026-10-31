@@ -73,14 +73,18 @@ func (us *userService) Create(ctx context.Context, name string) (string, error) 
 	return id, nil
 }
 
-func (us *userService) Update(ctx context.Context, id string, newName string) (int64, error) {
+func (us *userService) Update(ctx context.Context, id string, newName string) (domain.User, error) {
 	if err := domain.ValidateName(newName); err != nil {
-		return 0, err
+		return domain.User{}, err
 	}
 
-	return us.repo.Update(ctx, id, newName)
+	if err := us.repo.Update(ctx, id, newName); err != nil {
+		return domain.User{}, err
+	}
+
+	return domain.User{Id: id, Name: newName}, nil
 }
 
-func (us *userService) Delete(ctx context.Context, id string) (int64, error) {
+func (us *userService) Delete(ctx context.Context, id string) error {
 	return us.repo.Delete(ctx, id)
 }
