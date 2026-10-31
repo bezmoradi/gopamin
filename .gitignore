@@ -1,3 +1,6 @@
 .DS_Store
 .claude/*
-CLAUDE.md
+# Personal Claude Code instructions; CLAUDE.md is the shared one.
+CLAUDE.local.md
+# The binary `go build -o gopamin` writes at the repo root.
+/gopamin
