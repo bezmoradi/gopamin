@@ -32,7 +32,7 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 // could describe the datastore. Never write a 500 without going through here.
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
-	http.Error(w, internalFailure, http.StatusInternalServerError)
+	web.RenderError(w, http.StatusInternalServerError, internalFailure)
 }
 
 func (router router) registerUserRoutes() {

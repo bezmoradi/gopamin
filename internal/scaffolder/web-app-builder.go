@@ -37,6 +37,7 @@ func buildWebApp(g *generator) {
 		"web-app-styles",
 		"web-app-users-html-template",
 		"web-app-user-html-template",
+		"web-app-error-html-template",
 		"web-app-embed",
 	} {
 		g.file(key)

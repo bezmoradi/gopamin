@@ -61,7 +61,7 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, err := router.service.Index(r.Context(), 0, cursor)
 	if errors.Is(err, domain.ErrInvalidCursor) {
-		http.Error(w, "invalid pagination cursor", http.StatusBadRequest)
+		web.RenderError(w, http.StatusBadRequest, "This page link is not valid. Start again from the first page.")
 		return
 	}
 	if err != nil {
@@ -77,7 +77,7 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
 	result, err := router.service.Show(r.Context(), pathID(r))
 	if errors.Is(err, domain.ErrUserNotFound) {
-		http.Error(w, "user not found", http.StatusNotFound)
+		web.RenderError(w, http.StatusNotFound, "No user has this ID.")
 		return
 	}
 	if err != nil {

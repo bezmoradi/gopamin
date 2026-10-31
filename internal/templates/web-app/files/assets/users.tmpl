@@ -3,19 +3,27 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Document</title>
+        <title>Users</title>
         <link rel="stylesheet" href="/assets/styles.css" />
     </head>
     <body>
-        <h1>Users:</h1>
-        <ul>
-            {{`{{range .Items}}`}}
-            <li><a href="/users/{{`{{.ID}}`}}">{{`{{.Name}}`}}</a></li>
+        <main>
+            <h1>Users</h1>
+            {{`{{if .Items}}`}}
+            <ul class="users">
+                {{`{{range .Items}}`}}
+                <li><a href="/users/{{`{{.ID}}`}}">{{`{{.Name}}`}}</a></li>
+                {{`{{end}}`}}
+            </ul>
+            {{`{{else}}`}}
+            <p>No users yet. These pages are read-only; add a user with a form POST, for example:</p>
+            <pre><code>curl -d name=Ada http://localhost:8080/users</code></pre>
             {{`{{end}}`}}
-        </ul>
-        {{`{{if .NextCursor}}`}}
-        <a href="?cursor={{`{{.NextCursor}}`}}">Next &rarr;</a>
-        {{`{{end}}`}}
+            {{`{{if .NextCursor}}`}}
+            <nav aria-label="Pagination">
+                <a href="?cursor={{`{{.NextCursor}}`}}" rel="next">Next page &rarr;</a>
+            </nav>
+            {{`{{end}}`}}
+        </main>
     </body>
 </html>
-

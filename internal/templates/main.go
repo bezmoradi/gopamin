@@ -142,6 +142,7 @@ var registry = map[string]entry{
 	"web-app-httprouter-users":    {"web-app/files/internal/adapters/handlers/std/users.tmpl", "internal/adapters/handlers/httprouter/users.go"},
 	"web-app-users-html-template": {"web-app/files/assets/users.tmpl", "internal/web/templates/users.html"},
 	"web-app-user-html-template":  {"web-app/files/assets/user.tmpl", "internal/web/templates/user.html"},
+	"web-app-error-html-template": {"web-app/files/assets/error.tmpl", "internal/web/templates/error.html"},
 	"web-app-styles":              {"web-app/files/assets/styles.tmpl", "internal/web/static/styles.css"},
 	"web-app-embed":               {"web-app/files/internal/web/web.tmpl", "internal/web/web.go"},
 

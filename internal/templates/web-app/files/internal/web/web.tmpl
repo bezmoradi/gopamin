@@ -38,6 +38,18 @@ func RenderStatus(w http.ResponseWriter, status int, name string, data any) erro
 	return err
 }
 
+// RenderError writes the error page with status and a message for the visitor.
+// If the page itself fails to render, it falls back to plain text.
+func RenderError(w http.ResponseWriter, status int, message string) {
+	page := struct {
+		Status         int
+		Title, Message string
+	}{status, http.StatusText(status), message}
+	if err := RenderStatus(w, status, "error.html", page); err != nil {
+		http.Error(w, message, status)
+	}
+}
+
 // Assets serves the static files under /assets/. Only the static tree is
 // reachable (the page templates live apart from it), and directories aren't
 // listed.

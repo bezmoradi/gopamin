@@ -236,15 +236,17 @@ curl -s -XPOST localhost:8080/graphql -H 'Content-Type: application/json' \
 
 ## Web UI
 
-Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/adapters/handlers/{{.Platform}}`; routes live under `/users`:
+Server-rendered HTML (this is **not** a JSON API). Handlers are in `internal/adapters/handlers/{{.Platform}}`; routes live under `/users`. **The pages are read-only**: there are no create, edit or delete forms yet. Writes are form-encoded requests to the same routes, sent with curl or another client:
 
-| Method | Path | Renders |
+| Method | Path | Does |
 |---|---|---|
-| `GET` | `/users` | list page |
-| `GET` | `/users/:id` | detail page |
-| `POST` | `/users` | create (form submit) |
-| `PUT` | `/users/:id` | update |
+| `GET` | `/users` | list page (an empty list says how to add a user) |
+| `GET` | `/users/:id` | detail page, with a link back to the list |
+| `POST` | `/users` | create — form field `name` |
+| `PUT` | `/users/:id` | update — form field `name` |
 | `DELETE` | `/users/:id` | delete |
+
+A missing user, a bad page link and a server failure render an HTML error page (`internal/web/templates/error.html`, via `web.RenderError`) with the matching status. The write routes answer in plain text for their clients. Adding forms means adding them to the page templates; the cross-origin protection already accepts same-origin form posts.
 
 The list page is **forward-only paginated**: when more rows remain it renders a `Next →` link carrying an opaque `?cursor=…` (default page size `20`). This is a deliberately minimal browse UX — there is no "Previous" (backward cursors are out of scope). A hand-edited, malformed `?cursor` surfaces as a `400`; the generated `Next` links always carry a valid cursor.
 

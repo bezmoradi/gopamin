@@ -3,6 +3,7 @@ package echo
 import (
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/ports"
+	"{{.Name}}/internal/web"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -32,5 +33,6 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 // could describe the datastore. Never write a 500 without going through here.
 func (router *router) fail(c *echo.Context, operation string, err error) error {
 	router.logger.Error(operation+" failed", "error", err)
-	return c.String(http.StatusInternalServerError, internalFailure)
+	web.RenderError(c.Response(), http.StatusInternalServerError, internalFailure)
+	return nil
 }

@@ -3,6 +3,7 @@ package gin
 import (
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/ports"
+	"{{.Name}}/internal/web"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,5 +33,5 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 // could describe the datastore. Never write a 500 without going through here.
 func (router *router) fail(c *gin.Context, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
-	c.String(http.StatusInternalServerError, internalFailure)
+	web.RenderError(c.Writer, http.StatusInternalServerError, internalFailure)
 }
