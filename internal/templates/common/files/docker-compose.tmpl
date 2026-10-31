@@ -78,7 +78,9 @@ services:
     volumes:
       - cassandra_volume:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "nodetool status | grep -q '^UN'"]
+      # A CQL query, not `nodetool status`: the node reports UN before port 9042
+      # accepts clients.
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' > /dev/null"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -88,10 +90,20 @@ services:
     image: "amazon/dynamodb-local:2.5.2"
     command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
     working_dir: /home/dynamodblocal
+    # The image's user (uid 1000) can't write the data directory: Docker creates a
+    # new volume, like a missing bind directory, owned by root.
+    user: root
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - "./docker/dynamodb:/home/dynamodblocal/data"
+      - dynamodb_volume:/home/dynamodblocal/data
+    healthcheck:
+      # A real ListTables call (DynamoDB Local accepts any credentials): the port
+      # answers before the first request can be served.
+      test: ["CMD-SHELL", "curl -s -X POST http://localhost:8000 -H 'Content-Type: application/x-amz-json-1.0' -H 'X-Amz-Target: DynamoDB_20120810.ListTables' -H 'Authorization: AWS4-HMAC-SHA256 Credential=local/20200101/us-east-1/dynamodb/aws4_request, SignedHeaders=host, Signature=0' -d '{}' | grep -q TableNames"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 {{- end}}
 {{- if eq .Broker "kafka"}}
   kafka:
@@ -127,7 +139,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      # check_port_connectivity, not ping: the node answers ping seconds before
+      # the AMQP listener accepts connections.
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -156,7 +170,7 @@ services:
       - "127.0.0.1:4317:4317" # OTLP gRPC
       - "127.0.0.1:4318:4318" # OTLP HTTP
 {{- end}}
-{{- if or (eq .Database "postgres") (eq .Database "mysql") (eq .Database "mariadb") (eq .Database "mongodb") (eq .Database "cassandra") (eq .Broker "redis")}}
+{{- if or (eq .Database "postgres") (eq .Database "mysql") (eq .Database "mariadb") (eq .Database "mongodb") (eq .Database "cassandra") (eq .Database "dynamodb") (eq .Broker "redis")}}
 
 volumes:
 {{- if eq .Database "postgres"}}
@@ -169,6 +183,8 @@ volumes:
   mongo_volume:
 {{- else if eq .Database "cassandra"}}
   cassandra_volume:
+{{- else if eq .Database "dynamodb"}}
+  dynamodb_volume:
 {{- end}}
 {{- if eq .Broker "redis"}}
   redis_volume:
