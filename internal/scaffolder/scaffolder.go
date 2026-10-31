@@ -16,48 +16,13 @@ import (
 	"github.com/fatih/color"
 )
 
-type Project struct {
-	Database    string
-	Platform    string
-	Broker      string
-	Name        string
-	Path        string
-	ProjectType string
-	Logger      string
-	// GoVersion is the pinned Go version (== generatedGoVersion) exposed to
-	// templates so the Dockerfile's build image never drifts from the go.mod
-	// `go` directive.
-	GoVersion string
-	// CI is the optional CI platform ("github" or "gitlab", empty for none)
-	// selected with -c; it decides which pipeline file, if any, is emitted.
-	CI string
-	// Observability is the optional observability stack ("otel", empty for none)
-	// selected with -o; when set, templates emit the OTel adapter, the OTLP
-	// instrumentation wrap, the OTEL_* env block, and a collector in compose.
-	Observability string
-	// Auth is the optional authentication scheme ("jwt", empty for none) selected
-	// with -a (api only); when set, templates emit the auth adapter (bearer
-	// validation middleware + demo /login issuer) and a JWT_*/AUTH_* env block.
-	Auth string
-	// OpenAPI is the optional API-docs stack ("swagger", empty for none) selected
-	// with -s (REST api only); when set, templates emit a templated openapi.yaml
-	// plus embedded Swagger UI served at /swagger.
-	OpenAPI string
-}
-
-// ciRecipes maps a -c value to the template that renders its pipeline file.
-var ciRecipes = map[string]string{
-	"github": "github-ci",
-	"gitlab": "gitlab-ci",
-}
-
 func New(projectType, platform, broker, name, database, logger, ci, observability, auth, openapi string) {
 	alphanumericName := replaceNonAlphanumeric(name)
 	moduleName := replaceNonAlphanumeric(name, "/")
 	currentDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("Unable to get your current working directory")
-		return
+		fmt.Println("Unable to get your current working directory:", err)
+		os.Exit(1)
 	}
 
 	projectPath := filepath.Join(currentDir, alphanumericName)
@@ -83,19 +48,7 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		OpenAPI:       openapi,
 	}
 
-	if err := generateProjectAgnosticFiles(&p); err != nil {
-		fmt.Printf("Error generating project: %v\n", err)
-		_ = os.RemoveAll(projectPath)
-		os.Exit(1)
-	}
-
-	if err := buildersMap[p.ProjectType](&p); err != nil {
-		fmt.Printf("Error generating project: %v\n", err)
-		_ = os.RemoveAll(projectPath)
-		os.Exit(1)
-	}
-
-	if err := goGetPackages(p.Path, securityFloor); err != nil {
+	if err := generate(&p); err != nil {
 		fmt.Printf("Error generating project: %v\n", err)
 		_ = os.RemoveAll(projectPath)
 		os.Exit(1)
@@ -109,6 +62,28 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 	if err := goModTidy(p.Path); err != nil {
 		color.Yellow("warning: go mod tidy failed: %v", err)
 	}
+
+	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+}
+
+// generate writes every file for p, then initializes git and the Go module and
+// fetches the modules the files need, in one pinned `go get`.
+func generate(p *Project) error {
+	g := &generator{p: p}
+	g.need("github.com/joho/godotenv")
+	buildersMap[p.ProjectType](g)
+	buildCommon(g)
+	if g.err != nil {
+		return g.err
+	}
+
+	if err := initGit(p.Path); err != nil {
+		return err
+	}
+	if err := initGoMod(p.Name, p.Path); err != nil {
+		return err
+	}
+	return goGetPackages(p.Path, append(g.modules, securityFloor...))
 }
 
 func IsProjectNameTaken(name string) bool {
@@ -128,53 +103,35 @@ func IsProjectNameTaken(name string) bool {
 	return false
 }
 
-func generateProjectAgnosticFiles(p *Project) error {
-	fileGenerator([]string{"gitignore"}, p)
-	fileGenerator([]string{"license"}, p)
-	fileGenerator([]string{"agents"}, p)
-	if p.CI != "" {
-		fileGenerator([]string{ciRecipes[p.CI]}, p)
-	}
-
-	if err := initGit(p.Path); err != nil {
-		return err
-	}
-	if err := initGoMod(p.Name, p.Path); err != nil {
-		return err
-	}
-
-	return goGetPackages(p.Path, []string{"github.com/joho/godotenv"})
-}
-
-func fileGenerator(fileTypes []string, p *Project) {
-	templateMapper := templates.Mapper()
+// fileGenerator renders the templates named by keys, concatenated in order, into
+// the output path of the last key (concatenated templates share one path), and
+// gofmt's Go output.
+func fileGenerator(keys []string, p *Project) error {
 	var concatenatedContent strings.Builder
 	var fileName string
 
-	for _, fileType := range fileTypes {
-		fileTemplate, name := templateMapper[fileType]()
-		fileName = name
-		concatenatedContent.WriteString(string(fileTemplate) + "\n\n")
-	}
-
-	dir := filepath.Dir(filepath.Join(p.Path, fileName))
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-			fmt.Printf("Error creating directory: %s\n", err)
-			_ = os.RemoveAll(p.Path)
-			os.Exit(1)
+	for _, key := range keys {
+		content, name, err := templates.Lookup(key)
+		if err != nil {
+			return err
 		}
+		fileName = name
+		concatenatedContent.Write(content)
+		concatenatedContent.WriteString("\n\n")
 	}
 
-	tmpl := template.Must(
-		template.New(fileName).Parse(concatenatedContent.String()),
-	)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(p.Path, fileName)), 0755); err != nil {
+		return err
+	}
+
+	tmpl, err := template.New(fileName).Parse(concatenatedContent.String())
+	if err != nil {
+		return fmt.Errorf("%s: %w", fileName, err)
+	}
 
 	var rendered bytes.Buffer
 	if err := tmpl.Execute(&rendered, p); err != nil {
-		fmt.Println(err)
-		_ = os.RemoveAll(p.Path)
-		os.Exit(1)
+		return fmt.Errorf("%s: %w", fileName, err)
 	}
 
 	content := rendered.Bytes()
@@ -190,12 +147,11 @@ func fileGenerator(fileTypes []string, p *Project) {
 	}
 
 	if err := os.WriteFile(filepath.Join(p.Path, fileName), content, 0644); err != nil {
-		fmt.Println(err)
-		_ = os.RemoveAll(p.Path)
-		os.Exit(1)
+		return err
 	}
 
 	color.Green(fileName + " created")
+	return nil
 }
 
 func executeCommand(name string, args []string, dir string) error {

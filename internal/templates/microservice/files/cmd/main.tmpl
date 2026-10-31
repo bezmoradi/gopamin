@@ -13,7 +13,13 @@ import (
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
+{{- if .Database}}
+	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
+{{- end}}
 	"{{.Name}}/internal/core/message/domain"
+{{- if .Database}}
+	"{{.Name}}/internal/core/user/services"
+{{- end}}
 {{- if .Observability}}
 	"{{.Name}}/internal/adapters/observability"
 
@@ -27,6 +33,14 @@ func init() {
 
 func main() {
 	logger := {{.Logger}}.New()
+{{- if .Database}}
+
+	repo, err := {{.Database}}.New(logger)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	userService := services.NewUserService(repo)
+{{- end}}
 
 	broker, err := {{.Broker}}.New("testing", logger)
 	if err != nil {
@@ -66,17 +80,37 @@ func main() {
 	if err := broker.Produce(ctx, sample); err != nil {
 		logger.Fatal(err)
 	}
+{{- if .Database}}
+
+	// Consumer side: persist every received message via the user service. The
+	// WaitGroup lets main wait for in-flight processing to finish on shutdown.
+{{- else}}
 
 	// Consumer side: log every message received off the broker. The WaitGroup lets
 	// main wait for in-flight processing to finish on shutdown before returning.
+{{- end}}
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		consumeErr := broker.Consume(ctx, func(value []byte) {
+{{- if .Database}}
+{{- if .Observability}}
+			msgCtx, span := tracer.Start(ctx, "message.process")
+			defer span.End()
+			if _, err := userService.Create(msgCtx, string(value)); err != nil {
+				logger.Error(err.Error())
+			}
+{{- else}}
+			if _, err := userService.Create(ctx, string(value)); err != nil {
+				logger.Error(err.Error())
+			}
+{{- end}}
+{{- else}}
 {{- if .Observability}}
 			_, span := tracer.Start(ctx, "message.process")
 			defer span.End()
 {{- end}}
 			logger.Info("message received", "payload", string(value))
+{{- end}}
 		})
 		if consumeErr != nil && ctx.Err() == nil {
 			logger.Fatal(consumeErr)

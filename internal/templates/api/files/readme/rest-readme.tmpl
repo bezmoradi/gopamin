@@ -1,7 +1,9 @@
 ## API Guide
 
+{{if not .Database -}}
 This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`) to satisfy the service. Data is **not durable** — it resets every time the process restarts. Add a database with `gopamin new … -d <database>` for persistence.
 
+{{end -}}
 The API is served under `http://localhost:8080/api/v1/users` (the port is `PORT` in `.env`, default `8080`).
 {{if .Auth}}
 ### Authentication

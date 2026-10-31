@@ -1,7 +1,9 @@
 ## GraphQL API Guide
 
+{{if not .Database -}}
 This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -f graphql -d <database>` for persistence.
 
+{{end -}}
 The GraphQL API is a **single `POST /graphql` endpoint** — there is no GraphiQL in-browser IDE. Send each operation as JSON `{"query": "<operation>"}` (the port is `PORT` in `.env`, default `8080`):
 
 ```text

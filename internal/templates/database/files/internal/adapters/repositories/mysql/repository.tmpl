@@ -1,4 +1,6 @@
-package mysql
+{{- /* Shared by mysql and mariadb: they differ only in package name and env prefix. */ -}}
+{{- $env := "MYSQL"}}{{if eq .Database "mariadb"}}{{$env = "MARIADB"}}{{end -}}
+package {{.Database}}
 
 import (
 	"context"
@@ -37,11 +39,11 @@ type connection struct {
 }
 
 func New(logger shared.Logger) (*connection, error) {
-	databaseName := os.Getenv("MYSQL_DATABASE")
-	databasePassword := os.Getenv("MYSQL_PASSWORD")
-	databaseUsername := os.Getenv("MYSQL_USERNAME")
-	databasePort := os.Getenv("MYSQL_PORT")
-	databaseHost := os.Getenv("MYSQL_HOST")
+	databaseName := os.Getenv("{{$env}}_DATABASE")
+	databasePassword := os.Getenv("{{$env}}_PASSWORD")
+	databaseUsername := os.Getenv("{{$env}}_USERNAME")
+	databasePort := os.Getenv("{{$env}}_PORT")
+	databaseHost := os.Getenv("{{$env}}_HOST")
 
 	db, err := sql.Open(
 		"mysql",

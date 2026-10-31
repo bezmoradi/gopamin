@@ -15,7 +15,7 @@ import (
 	{{- end}}
 	"{{.Name}}/internal/adapters/handlers/{{.Platform}}"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
-	"{{.Name}}/internal/adapters/repositories/mock"
+	"{{.Name}}/internal/adapters/repositories/{{if .Database}}{{.Database}}{{else}}mock{{end}}"
 	"{{.Name}}/internal/core/user/services"
 )
 
@@ -24,8 +24,15 @@ func init() {
 }
 
 func main() {
-	db := &mock.MockRepository{}
 	logger := {{.Logger}}.New()
+{{- if .Database}}
+	db, err := {{.Database}}.New(logger)
+	if err != nil {
+		logger.Fatal(err)
+	}
+{{- else}}
+	db := &mock.MockRepository{}
+{{- end}}
 {{- if .Broker}}
 	broker, err := {{.Broker}}.New("testing", logger)
 	if err != nil {
@@ -55,8 +62,13 @@ func main() {
 {{- else}}
 	service := services.NewUserService(db)
 {{- end}}
+{{- if eq .Platform "graphql"}}
 	schema := {{.Platform}}.New(service, logger)
 	server.Serve(schema, logger)
+{{- else}}
+	handlers := {{.Platform}}.NewRouter(service, logger)
+	server.Serve(handlers, logger)
+{{- end}}
 {{- if .Broker}}
 	// Serve returns only once a signal drained the HTTP server; that same signal
 	// cancelled ctx, so Consume has stopped. Join it so an in-flight message finishes.

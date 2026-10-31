@@ -1,6 +1,49 @@
 package scaffolder
 
+import "github.com/bezmoradi/gopamin/internal/project"
+
 const BUILD_SUCCESS_MESSAGE = "project has been successfully created. Please consult the README.md file for instructions and guidance."
+
+// Project is the data every template renders with.
+type Project = project.Project
+
+// generator renders a project's files and collects the modules it needs. The
+// first error sticks: later calls do nothing, and the caller rolls the project
+// back. Type builders add their own files plus their part of .env and README.md;
+// buildCommon then emits everything the project types share.
+type generator struct {
+	p       *Project
+	err     error
+	modules []string
+	env     []string // type-specific .env templates, concatenated after the common ones
+	readme  []string // type-specific README.md templates, concatenated after the common ones
+}
+
+// file renders keys, concatenated in order, into their shared output path.
+func (g *generator) file(keys ...string) {
+	if g.err == nil {
+		g.err = fileGenerator(keys, g.p)
+	}
+}
+
+// need records modules to add to the project's go.mod at their pinned versions.
+func (g *generator) need(modules ...string) {
+	g.modules = append(g.modules, modules...)
+}
+
+// buildersMap dispatches a project type to its build function.
+var buildersMap = map[string]func(g *generator){
+	"api":         buildAPI,
+	"web-app":     buildWebApp,
+	"worker":      buildWorker,
+	"hello-world": buildHelloWorld,
+}
+
+// ciRecipes maps a -c value to the template that renders its pipeline file.
+var ciRecipes = map[string]string{
+	"github": "github-ci",
+	"gitlab": "gitlab-ci",
+}
 
 // coreRepositoryFiles are the domain/ports/services/mock files generated for any
 // project that ships the user repository stack (api, web-app, and hello-world
@@ -15,69 +58,86 @@ var coreRepositoryFiles = []string{
 	"user-service-test",
 }
 
-// databaseRecipe describes what varies between database adapters: the repository
-// file, whether the database runs in a container (and so contributes a service to
-// the merged docker-compose.yml), and the modules to fetch.
+// databaseRecipe describes what varies between database adapters: the
+// repository file and the modules it needs.
 type databaseRecipe struct {
-	repository    string
-	containerized bool
-	packages      []string
+	repository string
+	packages   []string
 }
 
-// PublishesEvents reports whether the project's user service should publish
-// events on writes: true for an api/web-app that selected a broker. It is an
-// exported method on Project rather than a package function so the user service
-// template can branch on the very same predicate the builder uses — the
-// publisher plumbing and the EventPublisher port it needs can never disagree.
-// (A worker sets Broker too, but consumes rather than publishes.)
-func (p *Project) PublishesEvents() bool {
-	return (p.ProjectType == "api" || p.ProjectType == "web-app") && p.Broker != ""
-}
-
-// hasContainerizedBackend reports whether the project needs a docker-compose.yml
-// and the docker make targets: true when it uses a containerized database and/or
-// a broker. (sqlite and badgerdb are embedded, so they need no container.)
-func hasContainerizedBackend(p *Project) bool {
-	return databaseRecipes[p.Database].containerized || p.Broker != ""
-}
-
-// isRelational reports whether a database uses the SQL-migration workflow
-// (versioned migrations/ + `make migrate-*`, DDL out of the constructor). The
-// other backends are schemaless (mongodb/badgerdb), API-provisioned (dynamodb),
-// or a different dialect (cassandra/CQL) and keep create-on-connect behavior.
-func isRelational(database string) bool {
-	switch database {
-	case "postgres", "mysql", "mariadb", "sqlite":
-		return true
+// buildCommon emits the files every project type shares. It runs after the type
+// builder, so .env and README.md get the type's parts appended to the common ones.
+func buildCommon(g *generator) {
+	p := g.p
+	g.file("gitignore")
+	g.file("license")
+	g.file("agents")
+	if p.CI != "" {
+		g.file(ciRecipes[p.CI])
 	}
-	return false
-}
 
-// hasObservability reports whether the project ships the OpenTelemetry stack
-// (selected with -o otel). Only api/web-app/worker are eligible; the validator
-// rejects it for hello-world.
-func hasObservability(p *Project) bool {
-	return p.Observability == "otel"
-}
+	g.file("logger-interface")
+	g.file(loggerRecipes[p.Logger].logger)
+	g.need(loggerRecipes[p.Logger].packages...)
 
-// hasAuth reports whether the project ships the JWT auth stack (selected with
-// -a jwt). Only api is eligible; the validator rejects it for other types.
-func hasAuth(p *Project) bool {
-	return p.Auth == "jwt"
-}
+	if p.Broker != "" {
+		g.file(p.Broker + "-microservice-broker")
+		g.need(workerRecipes[p.Broker]...)
+	}
+	if p.HasObservability() {
+		g.file("observability")
+		g.file("otel-collector")
+		g.need(observabilityPackages...)
+	}
+	if p.HasAuth() {
+		g.file("auth")
+		g.need("github.com/golang-jwt/jwt/v5")
+	}
+	if p.HasOpenAPI() {
+		g.file("openapi-spec")
+		g.file("openapi-serve")
+		g.need("github.com/swaggest/swgui")
+	}
 
-// hasOpenAPI reports whether the project ships the OpenAPI/Swagger stack (selected
-// with -s swagger). REST api only — graphql has its own introspection, so it is
-// excluded here as well as by the validator.
-func hasOpenAPI(p *Project) bool {
-	return p.OpenAPI == "swagger" && p.Platform != "graphql"
-}
+	env := []string{"env"}
+	env = append(env, g.env...)
+	if p.Database != "" {
+		env = append(env, p.Database+"-env")
+	}
+	if p.Broker != "" {
+		env = append(env, p.Broker+"-microservice-env")
+	}
+	if p.HasObservability() {
+		env = append(env, "otel-env")
+	}
+	if p.HasAuth() {
+		env = append(env, "auth-env")
+	}
+	g.file(env...)
 
-// hasCompose reports whether the project needs a docker-compose.yml + the docker-*
-// make targets: true for a containerized backend (database/broker) OR observability
-// (which contributes an otel-collector service).
-func hasCompose(p *Project) bool {
-	return hasContainerizedBackend(p) || hasObservability(p)
+	readme := []string{"readme", p.Logger + "-readme"}
+	if p.Database != "" {
+		readme = append(readme, p.Database+"-readme")
+	}
+	g.file(append(readme, g.readme...)...)
+
+	makefile := []string{"makefile"}
+	if p.HasCompose() {
+		makefile = append(makefile, "docker-makefile")
+		g.file("docker-compose")
+	}
+	if p.IsRelational() {
+		makefile = append(makefile, "migrate-makefile")
+	}
+	g.file(makefile...)
+
+	for _, key := range []string{"configs", "configs-test", "tools", "tools-test", "arch-lint", "golangci"} {
+		g.file(key)
+	}
+	if p.ProjectType != "hello-world" {
+		g.file("dockerfile")
+		g.file("dockerignore")
+	}
 }
 
 // observabilityPackages are the OpenTelemetry runtime modules fetched into the
@@ -92,88 +152,37 @@ var observabilityPackages = []string{
 	"go.opentelemetry.io/contrib/instrumentation/runtime",
 }
 
-// buildObservability emits the OpenTelemetry adapter and the local collector config
-// and fetches the OTel modules. The OTEL_* env block (otel-env) and the compose
-// collector service are handled by the caller's env/compose assembly.
-func buildObservability(p *Project) error {
-	if !hasObservability(p) {
-		return nil
-	}
-	fileGenerator([]string{"observability"}, p)
-	fileGenerator([]string{"otel-collector"}, p)
-	return goGetPackages(p.Path, observabilityPackages)
-}
-
-// buildAuth emits the JWT auth adapter (bearer-validation middleware + demo /login
-// issuer) and fetches golang-jwt. The JWT_*/AUTH_* env block (auth-env) is handled
-// by the caller's env assembly.
-func buildAuth(p *Project) error {
-	if !hasAuth(p) {
-		return nil
-	}
-	fileGenerator([]string{"auth"}, p)
-	return goGetPackages(p.Path, []string{"github.com/golang-jwt/jwt/v5"})
-}
-
-// buildOpenAPI emits the templated OpenAPI document plus the Swagger-UI serving
-// adapter, and fetches the embedded Swagger-UI package. The /openapi.yaml and
-// /swagger routes are mounted by the cmd/server template (guarded on .OpenAPI).
-func buildOpenAPI(p *Project) error {
-	if !hasOpenAPI(p) {
-		return nil
-	}
-	fileGenerator([]string{"openapi-spec"}, p)
-	fileGenerator([]string{"openapi-serve"}, p)
-	return goGetPackages(p.Path, []string{"github.com/swaggest/swgui"})
-}
-
 // buildDatabase generates the user repository stack plus the chosen database's
 // adapter. `database` is passed explicitly (rather than read from p.Database) so
-// callers can request the in-memory "mock" without mutating the Project.
-func buildDatabase(p *Project, database string) error {
+// api/web-app can request the in-memory "mock" without mutating the Project.
+func buildDatabase(g *generator, database string) {
 	for _, key := range coreRepositoryFiles {
 		// The user service is one template that grows publisher plumbing when
 		// PublishesEvents() is true; all that's needed here is the outbound port
-		// it depends on. (It was once a second, copy-pasted service template —
-		// which promptly drifted and lost a validation rule.)
-		if key == "user-service" && p.PublishesEvents() {
-			fileGenerator([]string{"event-publisher-interface"}, p)
+		// it depends on.
+		if key == "user-service" && g.p.PublishesEvents() {
+			g.file("event-publisher-interface")
 		}
-		fileGenerator([]string{key}, p)
+		g.file(key)
 	}
 
 	recipe := databaseRecipes[database]
 	if recipe.repository != "" {
-		fileGenerator([]string{recipe.repository}, p)
+		g.file(recipe.repository)
 	}
 
 	// Relational databases own their schema via versioned migrations rather than
 	// constructor DDL; ship the initial create-users migration pair.
-	if isRelational(database) {
-		fileGenerator([]string{"migration-up"}, p)
-		fileGenerator([]string{"migration-down"}, p)
+	if g.p.IsRelational() {
+		g.file("migration-up")
+		g.file("migration-down")
 	}
 
-	return goGetPackages(p.Path, recipe.packages)
+	g.need(recipe.packages...)
 }
 
 // loggerRecipe describes what varies between logger adapters.
 type loggerRecipe struct {
 	logger   string
 	packages []string
-}
-
-func buildLogger(p *Project) error {
-	recipe := loggerRecipes[p.Logger]
-	fileGenerator([]string{recipe.logger}, p)
-	fileGenerator([]string{"logger-interface"}, p)
-	return goGetPackages(p.Path, recipe.packages)
-}
-
-// buildersMap dispatches a project type to its build function.
-var buildersMap = map[string]func(p *Project) error{
-	"api":         buildAPI,
-	"web-app":     buildWebApp,
-	"worker":      buildWorker,
-	"hello-world": buildHelloWorld,
 }

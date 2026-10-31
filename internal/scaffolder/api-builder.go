@@ -1,27 +1,18 @@
 package scaffolder
 
-import "fmt"
-
-// apiRecipe captures what varies between API platforms: the cmd/main and README
-// variants (with and without a database), the platform-specific files, and the
-// modules to fetch.
+// apiRecipe captures what varies between API platforms: the README section, the
+// platform-specific files, and the modules to fetch.
 type apiRecipe struct {
-	mainNoDB     string
-	mainWithDB   string
-	readmeNoDB   string
-	readmeWithDB string
-	files        []string
-	packages     []string
+	readme   string
+	files    []string
+	packages []string
 }
 
 func restAPIRecipe(routes, users string, packages []string) apiRecipe {
 	return apiRecipe{
-		mainNoDB:     "api-main",
-		mainWithDB:   "api-main-with-db",
-		readmeNoDB:   "api-readme",
-		readmeWithDB: "api-readme-with-db",
-		files:        []string{"api-server", routes, users, "api-errors", "api-response", "api-user", "router-interface"},
-		packages:     packages,
+		readme:   "api-readme",
+		files:    []string{"api-server", routes, users, "api-errors", "api-response", "api-user", "router-interface"},
+		packages: packages,
 	}
 }
 
@@ -33,92 +24,28 @@ var apiRecipes = map[string]apiRecipe{
 	"gorilla":    restAPIRecipe("api-gorilla-routes", "api-gorilla-users", []string{"github.com/gorilla/mux"}),
 	"http":       restAPIRecipe("api-http-routes", "api-http-users", nil),
 	"graphql": {
-		mainNoDB:     "graphql-main",
-		mainWithDB:   "graphql-main-with-db",
-		readmeNoDB:   "graphql-readme",
-		readmeWithDB: "graphql-readme-with-db",
-		files:        []string{"graphql-server", "graphql-schema"},
-		packages:     []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"},
+		readme:   "graphql-readme",
+		files:    []string{"graphql-server", "graphql-schema"},
+		packages: []string{"github.com/graphql-go/graphql", "github.com/graphql-go/handler"},
 	},
 }
 
-func buildAPI(p *Project) error {
-	recipe := apiRecipes[p.Platform]
-	env := []string{"env", "api-env"}
-	readme := []string{"readme", p.Logger + "-readme"}
-	makefile := []string{"makefile"}
+func buildAPI(g *generator) {
+	recipe := apiRecipes[g.p.Platform]
+	g.env = append(g.env, "api-env")
+	g.readme = append(g.readme, recipe.readme)
 
-	database := p.Database
+	database := g.p.Database
 	if database == "" {
 		database = "mock"
-		fileGenerator([]string{recipe.mainNoDB}, p)
-		readme = append(readme, recipe.readmeNoDB)
-	} else {
-		fileGenerator([]string{recipe.mainWithDB}, p)
-		readme = append(readme, database+"-readme", recipe.readmeWithDB)
-		env = append(env, database+"-env")
 	}
+	buildDatabase(g, database)
 
-	if hasCompose(p) {
-		makefile = append(makefile, "docker-makefile")
-	}
-	if isRelational(p.Database) {
-		makefile = append(makefile, "migrate-makefile")
-	}
-	if p.Broker != "" {
-		env = append(env, p.Broker+"-microservice-env")
-	}
-	if hasObservability(p) {
-		env = append(env, "otel-env")
-	}
-	if hasAuth(p) {
-		env = append(env, "auth-env")
-	}
-
-	if err := buildDatabase(p, database); err != nil {
-		return err
-	}
-	if err := buildLogger(p); err != nil {
-		return err
-	}
-	if err := buildObservability(p); err != nil {
-		return err
-	}
-	if err := buildAuth(p); err != nil {
-		return err
-	}
-	if err := buildOpenAPI(p); err != nil {
-		return err
-	}
-	if p.Broker != "" {
-		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
-		if err := goGetPackages(p.Path, workerRecipes[p.Broker]); err != nil {
-			return err
-		}
-	}
-	fileGenerator(env, p)
-	fileGenerator(readme, p)
-	fileGenerator(makefile, p)
-	if hasCompose(p) {
-		fileGenerator([]string{"docker-compose"}, p)
-	}
-	fileGenerator([]string{"configs"}, p)
-	fileGenerator([]string{"configs-test"}, p)
-	fileGenerator([]string{"tools"}, p)
-	fileGenerator([]string{"tools-test"}, p)
-	fileGenerator([]string{"arch-lint"}, p)
-	fileGenerator([]string{"golangci"}, p)
-	fileGenerator([]string{"dockerfile"}, p)
-	fileGenerator([]string{"dockerignore"}, p)
+	g.file("http-main")
 	for _, key := range recipe.files {
-		fileGenerator([]string{key}, p)
+		g.file(key)
 	}
-	fileGenerator([]string{"health-handler"}, p)
-	fileGenerator([]string{"middleware"}, p)
-	if err := goGetPackages(p.Path, recipe.packages); err != nil {
-		return err
-	}
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
-	return nil
+	g.file("health-handler")
+	g.file("middleware")
+	g.need(recipe.packages...)
 }

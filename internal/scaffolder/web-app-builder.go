@@ -1,7 +1,5 @@
 package scaffolder
 
-import "fmt"
-
 // webRecipe captures what varies between web-app platforms.
 type webRecipe struct {
 	routes   string
@@ -18,79 +16,31 @@ var webRecipes = map[string]webRecipe{
 	"httprouter": {"web-app-httprouter-routes", "web-app-httprouter-users", []string{"github.com/julienschmidt/httprouter"}},
 }
 
-func buildWebApp(p *Project) error {
-	recipe := webRecipes[p.Platform]
-	env := []string{"env", "web-app-env"}
-	readme := []string{"readme", p.Logger + "-readme"}
-	makefile := []string{"makefile"}
+func buildWebApp(g *generator) {
+	recipe := webRecipes[g.p.Platform]
+	g.env = append(g.env, "web-app-env")
+	g.readme = append(g.readme, "web-app-readme")
 
-	database := p.Database
+	database := g.p.Database
 	if database == "" {
 		database = "mock"
-		fileGenerator([]string{"web-app-main"}, p)
-		readme = append(readme, "web-app-readme")
-	} else {
-		fileGenerator([]string{"web-app-main-with-db"}, p)
-		readme = append(readme, database+"-readme", "web-app-readme-with-db")
-		env = append(env, database+"-env")
 	}
+	buildDatabase(g, database)
 
-	if hasCompose(p) {
-		makefile = append(makefile, "docker-makefile")
+	for _, key := range []string{
+		"http-main",
+		"web-app-server",
+		recipe.routes,
+		recipe.users,
+		"health-handler",
+		"middleware",
+		"router-interface",
+		"web-app-styles",
+		"web-app-users-html-template",
+		"web-app-user-html-template",
+		"web-app-embed",
+	} {
+		g.file(key)
 	}
-	if isRelational(p.Database) {
-		makefile = append(makefile, "migrate-makefile")
-	}
-	if p.Broker != "" {
-		env = append(env, p.Broker+"-microservice-env")
-	}
-	if hasObservability(p) {
-		env = append(env, "otel-env")
-	}
-
-	if err := buildDatabase(p, database); err != nil {
-		return err
-	}
-	if err := buildLogger(p); err != nil {
-		return err
-	}
-	if err := buildObservability(p); err != nil {
-		return err
-	}
-	if p.Broker != "" {
-		fileGenerator([]string{p.Broker + "-microservice-broker"}, p)
-		if err := goGetPackages(p.Path, workerRecipes[p.Broker]); err != nil {
-			return err
-		}
-	}
-	fileGenerator(env, p)
-	fileGenerator(readme, p)
-	fileGenerator(makefile, p)
-	if hasCompose(p) {
-		fileGenerator([]string{"docker-compose"}, p)
-	}
-	fileGenerator([]string{"configs"}, p)
-	fileGenerator([]string{"configs-test"}, p)
-	fileGenerator([]string{"tools"}, p)
-	fileGenerator([]string{"tools-test"}, p)
-	fileGenerator([]string{"arch-lint"}, p)
-	fileGenerator([]string{"golangci"}, p)
-	fileGenerator([]string{"dockerfile"}, p)
-	fileGenerator([]string{"dockerignore"}, p)
-	fileGenerator([]string{"web-app-server"}, p)
-	fileGenerator([]string{recipe.routes}, p)
-	fileGenerator([]string{recipe.users}, p)
-	fileGenerator([]string{"health-handler"}, p)
-	fileGenerator([]string{"middleware"}, p)
-	fileGenerator([]string{"router-interface"}, p)
-	fileGenerator([]string{"web-app-styles"}, p)
-	fileGenerator([]string{"web-app-users-html-template"}, p)
-	fileGenerator([]string{"web-app-user-html-template"}, p)
-	fileGenerator([]string{"web-app-embed"}, p)
-	if err := goGetPackages(p.Path, recipe.packages); err != nil {
-		return err
-	}
-
-	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
-	return nil
+	g.need(recipe.packages...)
 }

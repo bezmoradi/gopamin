@@ -9,8 +9,6 @@
 {{- $hasRepo := or (ne .Database "") (or (eq .ProjectType "api") (eq .ProjectType "web-app")) -}}
 {{- $hasBroker := ne .Broker "" -}}
 {{- $hasDomain := or (ne .ProjectType "hello-world") (ne .Database "") -}}
-{{- $containerized := or (ne .Broker "") (and (ne .Database "") (not (or (eq .Database "sqlite") (eq .Database "badgerdb")))) -}}
-{{- $isRelational := or (eq .Database "postgres") (or (eq .Database "mysql") (or (eq .Database "mariadb") (eq .Database "sqlite"))) -}}
 {{- $hasObservability := ne .Observability "" -}}
 {{- $hasAuth := ne .Auth "" -}}
 # AGENTS.md
@@ -80,8 +78,8 @@ internal/
 configs/  # loads .env into the process environment
 tools/  # small project-root helpers
 .env  # configuration — see Environment variables
-{{- if $containerized}}
-docker-compose.yml  # {{if $hasRealDB}}{{.Database}}{{end}}{{if and $hasRealDB $hasBroker}} + {{end}}{{if $hasBroker}}{{.Broker}}{{end}} backing service(s)
+{{- if .HasCompose}}
+docker-compose.yml  # {{.ComposeServices}} service(s) for local development
 {{- end}}
 .go-arch-lint.yml  # architecture-boundary rules (make arch)
 .golangci.yml  # golangci-lint config — static analysis (make lint)
@@ -334,22 +332,22 @@ This {{if $isWeb}}web app{{else}}API{{end}} adds event messaging **alongside** i
 
 ## Running
 
-{{if $containerized -}}
-This project needs its backing service running first.
+{{if .HasCompose -}}
+This project needs its backing service(s) running first.
 
 ```bash
-make docker-up     # start {{if $hasRealDB}}{{.Database}}{{end}}{{if and $hasRealDB $hasBroker}} + {{end}}{{if $hasBroker}}{{.Broker}}{{end}} in Docker (docker-compose.yml)
-{{if $isRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
+make docker-up     # start {{.ComposeServices}} in Docker (docker-compose.yml)
+{{if .IsRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
 {{end}}make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
 make docker-down   # stop the backing service (add docker-down-rm-vol to wipe volumes)
 ```
 {{- else -}}
 ```bash
-{{if $isRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
+{{if .IsRelational}}make migrate-up    # apply schema migrations (required before first run — see below)
 {{end}}make run           # run the app{{if $hasHTTP}} (serves on :8080 — override with PORT){{end}}
 ```
 {{- end}}
-{{if $isRelational}}
+{{if .IsRelational}}
 ## Database migrations
 
 The `{{.Database}}` schema is owned by versioned migration files in `migrations/` (applied with [golang-migrate](https://github.com/golang-migrate/migrate)), **not** created by the app at startup — so multiple instances never race on DDL, and schema changes are deliberate and reviewable.
