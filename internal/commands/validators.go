@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/bezmoradi/gopamin/internal/scaffolder"
 )
@@ -29,8 +30,13 @@ func argsValidator() bool {
 		return false
 	}
 
+	if !scaffolder.IsValidProjectName(name) {
+		fmt.Println(`The -n value must start with a letter or a digit. For more help, type "gopamin new -h"`)
+		return false
+	}
+
 	if scaffolder.IsProjectNameTaken(name) {
-		fmt.Println("This project name is already taken in the current directory")
+		fmt.Printf("%q already exists in the current directory\n", scaffolder.DirectoryName(name))
 		return false
 	}
 
@@ -128,66 +134,31 @@ func flagsAllowedForType() (bool, string) {
 }
 
 func validateType() bool {
-	switch projectType {
-	case "hello-world", "web-app", "api", "worker":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.ProjectTypes(), projectType)
 }
 
 func webAppFrameworkValidator() bool {
-	switch framework {
-	case "echo", "chi", "gin", "http", "gorilla", "httprouter":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.Frameworks("web-app"), framework)
 }
 
 func apiFrameworkValidator() bool {
-	switch framework {
-	case "echo", "chi", "gin", "http", "gorilla", "graphql", "httprouter":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.Frameworks("api"), framework)
 }
 
 func brokerValidator() bool {
-	switch broker {
-	case "kafka", "rabbitmq", "redis":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.Brokers(), broker)
 }
 
 func databaseValidator() bool {
-	switch database {
-	case "mysql", "mariadb", "postgres", "mongodb", "sqlite", "dynamodb", "badgerdb", "cassandra":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.Databases(), database)
 }
 
 func loggerValidator() bool {
-	switch logger {
-	case "log", "slog", "logrus", "zap":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.Loggers(), logger)
 }
 
 func ciValidator() bool {
-	switch ci {
-	case "github", "gitlab":
-		return true
-	}
-
-	return false
+	return slices.Contains(scaffolder.CIs(), ci)
 }
 
 func observabilityValidator() bool {

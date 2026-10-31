@@ -6,22 +6,26 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/user/domain"
-	"{{.Name}}/internal/core/shared"
 	"os"
 	"strconv"
 
+	"{{.Name}}/internal/core/user/domain"
+	"{{.Name}}/migrations"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/sqlite3"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 const tableName = "users"
 
-// parseId converts a client-supplied id to the width the id column actually is.
+// parseID converts a client-supplied id to the width the id column actually is.
 // SQLite's INTEGER holds up to 8 bytes, so 64 bits is the right width here — it
 // is stated explicitly rather than inherited from strconv.Atoi's platform-sized
 // int, because the sibling relational adapters deliberately parse narrower to
 // match their 4-byte id columns. Keep this in step with the migration.
-func parseId(id string) (int64, bool) {
+func parseID(id string) (int64, bool) {
 	parsed, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return 0, false
@@ -30,12 +34,15 @@ func parseId(id string) (int64, bool) {
 	return parsed, true
 }
 
-type connection struct {
+// Repository stores users in a SQLite file.
+type Repository struct {
 	db *sql.DB
-	logger shared.Logger
 }
 
-func New(logger shared.Logger) (*connection, error) {
+// New opens the SQLite file named by SQLITE_DB_URL, applies any pending
+// migrations from migrations/, and pings it, so a path the app can't open stops
+// it at startup.
+func New() (*Repository, error) {
 	dburl := os.Getenv("SQLITE_DB_URL")
 	if dburl == "" {
 		// Fall back to a file in the working directory so the app runs even
@@ -44,18 +51,57 @@ func New(logger shared.Logger) (*connection, error) {
 		// Dockerfile's WORKDIR this resolves to a writable, volume-mountable path.
 		dburl = "./test.db"
 	}
+	if err := migrateUp(dburl); err != nil {
+		return nil, fmt.Errorf("migrate SQLite database %q: %w", dburl, err)
+	}
+
 	db, err := sql.Open("sqlite3", dburl)
 	if err != nil {
 		return nil, err
 	}
+	if err := db.PingContext(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("cannot open SQLite database %q: %w", dburl, err)
+	}
 
-	// Schema is owned by the versioned migrations in migrations/ (run `make
-	// migrate-up`), not created here — so the app never races on DDL at startup.
-	return &connection{db: db, logger: logger}, nil
+	return &Repository{db: db}, nil
 }
 
-func (c *connection) Insert(ctx context.Context, name string) (string, error) {
-	result, err := c.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %v (name) VALUES (?)", tableName), name)
+// migrateUp applies the migrations embedded from migrations/. It records them in
+// the same schema_migrations table as `make migrate-up`, so either can run first
+// and the other has nothing to do. The server databases leave this to `make
+// migrate-up`, because several instances starting at once would race on DDL; a
+// SQLite file belongs to one process, and a container started from the image
+// gets its schema without a separate step.
+func migrateUp(dburl string) error {
+	source, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		return err
+	}
+	m, err := migrate.NewWithSourceInstance("iofs", source, "sqlite3://"+dburl)
+	if err != nil {
+		return err
+	}
+	defer func() { _, _ = m.Close() }()
+
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+	return nil
+}
+
+// Ping reports whether the database file is usable; /readyz calls it.
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.db.PingContext(ctx)
+}
+
+// Close closes the database file.
+func (r *Repository) Close() error {
+	return r.db.Close()
+}
+
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
+	result, err := r.db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %v (name) VALUES (?)", tableName), name)
 	if err != nil {
 		return "", err
 	}
@@ -65,67 +111,75 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	return strconv.FormatInt(lastInsertID, 10), nil
 }
 
-func (c *connection) Update(ctx context.Context, id string, newName string) (int64, error) {
-	// An id the column can't hold can never match a row: no rows affected.
-	numericId, ok := parseId(id)
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user for key (a consumed event's id) unless the unique
+// event_id column shows one was already inserted for it.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		fmt.Sprintf("INSERT INTO %v (name, event_id) VALUES (?, ?) ON CONFLICT (event_id) DO NOTHING", tableName),
+		name,
+		key,
+	)
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id string, newName string) error {
+	// An id the column can't hold can never match a row.
+	numericID, ok := parseID(id)
 	if !ok {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	result, err := c.db.ExecContext(
+	result, err := r.db.ExecContext(
 		ctx,
 		fmt.Sprintf("UPDATE %v SET name = ? WHERE id = ?", tableName),
 		newName,
-		numericId,
+		numericID,
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-
-	return rowsAffected, nil
+	return requireRow(result)
 }
 
-func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
-	// An id the column can't hold can never match a row: no rows affected.
-	numericId, ok := parseId(id)
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	// An id the column can't hold can never match a row.
+	numericID, ok := parseID(id)
 	if !ok {
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	result, err := c.db.ExecContext(
+	result, err := r.db.ExecContext(
 		ctx,
 		fmt.Sprintf("DELETE FROM %v WHERE id = ?", tableName),
-		numericId,
+		numericID,
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-
-	return rowsAffected, nil
+	return requireRow(result)
 }
 
-func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
 	// An id the column can't hold can never match a row.
-	numericId, ok := parseId(id)
+	numericID, ok := parseID(id)
 	if !ok {
 		return domain.User{}, domain.ErrUserNotFound
 	}
 
 	var user domain.User
-	row := c.db.QueryRowContext(
+	row := r.db.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
 			"SELECT id, name FROM %s WHERE id = ?",
 			tableName,
 		),
-		numericId,
+		numericID,
 	)
 
-	if err := row.Scan(&user.Id, &user.Name); err != nil {
+	if err := row.Scan(&user.ID, &user.Name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.User{}, domain.ErrUserNotFound
 		}
@@ -135,7 +189,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return user, nil
 }
 
-func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Self-defense: the service always clamps limit into [1, max], but a direct
 	// caller must not be able to make this method panic on page.Items[limit-1].
 	if limit < 1 {
@@ -145,7 +199,7 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	// Keyset pagination: the cursor is the last id from the previous page,
 	// base64-encoded. Ordering by the integer primary key gives a stable,
 	// gap-free walk; id > 0 selects everything for the first (cursor-less) page.
-	var afterId int64
+	var afterID int64
 	if cursor != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
 		if err != nil {
@@ -153,18 +207,18 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 		}
 		// A cursor outside the id column's range was never one we issued, so
 		// it's a malformed token (400), not something to hand to the driver.
-		parsed, ok := parseId(string(decoded))
+		parsed, ok := parseID(string(decoded))
 		if !ok {
 			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		afterId = parsed
+		afterID = parsed
 	}
 
 	// Fetch one extra row to learn whether a further page exists.
-	rows, err := c.db.QueryContext(
+	rows, err := r.db.QueryContext(
 		ctx,
 		fmt.Sprintf("SELECT id, name FROM %v WHERE id > ? ORDER BY id ASC LIMIT ?", tableName),
-		afterId,
+		afterID,
 		limit+1,
 	)
 	if err != nil {
@@ -175,7 +229,7 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	var users []domain.User
 	for rows.Next() {
 		var user domain.User
-		err := rows.Scan(&user.Id, &user.Name)
+		err := rows.Scan(&user.ID, &user.Name)
 		if err != nil {
 			return domain.Page{}, err
 		}
@@ -188,8 +242,20 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	page := domain.Page{Items: users}
 	if len(users) > limit {
 		page.Items = users[:limit]
-		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].Id))
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.Items[limit-1].ID))
 	}
 
 	return page, nil
+}
+
+// requireRow turns a write that matched no row into domain.ErrUserNotFound.
+func requireRow(result sql.Result) error {
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrUserNotFound
+	}
+	return nil
 }

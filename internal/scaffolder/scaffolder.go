@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,48 +15,13 @@ import (
 	"github.com/fatih/color"
 )
 
-type Project struct {
-	Database    string
-	Platform    string
-	Broker      string
-	Name        string
-	Path        string
-	ProjectType string
-	Logger      string
-	// GoVersion is the pinned Go version (== generatedGoVersion) exposed to
-	// templates so the Dockerfile's build image never drifts from the go.mod
-	// `go` directive.
-	GoVersion string
-	// CI is the optional CI platform ("github" or "gitlab", empty for none)
-	// selected with -c; it decides which pipeline file, if any, is emitted.
-	CI string
-	// Observability is the optional observability stack ("otel", empty for none)
-	// selected with -o; when set, templates emit the OTel adapter, the OTLP
-	// instrumentation wrap, the OTEL_* env block, and a collector in compose.
-	Observability string
-	// Auth is the optional authentication scheme ("jwt", empty for none) selected
-	// with -a (api only); when set, templates emit the auth adapter (bearer
-	// validation middleware + demo /login issuer) and a JWT_*/AUTH_* env block.
-	Auth string
-	// OpenAPI is the optional API-docs stack ("swagger", empty for none) selected
-	// with -s (REST api only); when set, templates emit a templated openapi.yaml
-	// plus embedded Swagger UI served at /swagger.
-	OpenAPI string
-}
-
-// ciRecipes maps a -c value to the template that renders its pipeline file.
-var ciRecipes = map[string]string{
-	"github": "github-ci",
-	"gitlab": "gitlab-ci",
-}
-
 func New(projectType, platform, broker, name, database, logger, ci, observability, auth, openapi string) {
-	alphanumericName := replaceNonAlphanumeric(name)
-	moduleName := replaceNonAlphanumeric(name, "/")
+	alphanumericName := DirectoryName(name)
+	moduleName := ModulePath(name)
 	currentDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("Unable to get your current working directory")
-		return
+		fmt.Println("Unable to get your current working directory:", err)
+		os.Exit(1)
 	}
 
 	projectPath := filepath.Join(currentDir, alphanumericName)
@@ -83,19 +47,34 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		OpenAPI:       openapi,
 	}
 
-	if err := generateProjectAgnosticFiles(&p); err != nil {
+	// Random passwords for the compose database and broker, so no project ships
+	// a known credential on a published port.
+	p.Secrets.DatabasePassword = randomHex(16)
+	p.Secrets.DatabaseRootPassword = randomHex(16)
+	p.Secrets.BrokerPassword = randomHex(16)
+
+	// -a jwt: a random signing secret and demo password, so no two projects share
+	// one and none ships a known default. Only the password's hash is written.
+	var demoPassword string
+	if p.HasAuth() {
+		demoPassword = randomToken(16)
+		hash, err := hashPassword(demoPassword)
+		if err != nil {
+			fmt.Printf("Error generating project: %v\n", err)
+			_ = os.RemoveAll(projectPath)
+			os.Exit(1)
+		}
+		p.Secrets.JWTSecret = randomToken(32)
+		p.Secrets.AuthPasswordHash = hash
+	}
+
+	if err := generate(&p); err != nil {
 		fmt.Printf("Error generating project: %v\n", err)
 		_ = os.RemoveAll(projectPath)
 		os.Exit(1)
 	}
 
-	if err := buildersMap[p.ProjectType](&p); err != nil {
-		fmt.Printf("Error generating project: %v\n", err)
-		_ = os.RemoveAll(projectPath)
-		os.Exit(1)
-	}
-
-	// `go get -u` records every dependency as `// indirect`; run `go mod tidy`
+	// `go get` records every dependency as `// indirect`; run `go mod tidy`
 	// once, after all files and go-gets, so directly-imported modules are promoted
 	// to direct requirements and anything unused is dropped. Non-fatal: the project
 	// is already complete and its go.mod is valid, so a tidy hiccup (e.g. a transient
@@ -103,31 +82,23 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 	if err := goModTidy(p.Path); err != nil {
 		color.Yellow("warning: go mod tidy failed: %v", err)
 	}
-}
 
-func IsProjectNameTaken(name string) bool {
-	name = replaceNonAlphanumeric(name)
-
-	if _, err := os.Stat(name); err == nil {
-		dirEntries, err := os.ReadDir(name)
-		if err != nil {
-			log.Println("Could not read the directory")
-			return true
-		}
-		if len(dirEntries) > 0 {
-			return true
-		}
+	fmt.Printf("%v "+buildSuccessMessage+"\n", p.Name)
+	if demoPassword != "" {
+		color.Cyan("Demo login for POST /login: username \"admin\", password %q.", demoPassword)
+		color.Cyan("This is the only time the password is shown; .env keeps only its hash. Run `make hash-password` to set a new one.")
 	}
-
-	return false
 }
 
-func generateProjectAgnosticFiles(p *Project) error {
-	fileGenerator([]string{"gitignore"}, p)
-	fileGenerator([]string{"license"}, p)
-	fileGenerator([]string{"agents"}, p)
-	if p.CI != "" {
-		fileGenerator([]string{ciRecipes[p.CI]}, p)
+// generate writes every file for p, then initializes git and the Go module and
+// fetches the modules the files need, in one pinned `go get`.
+func generate(p *Project) error {
+	g := &generator{p: p}
+	g.need("github.com/joho/godotenv")
+	buildersMap[p.ProjectType](g)
+	buildCommon(g)
+	if g.err != nil {
+		return g.err
 	}
 
 	if err := initGit(p.Path); err != nil {
@@ -136,39 +107,70 @@ func generateProjectAgnosticFiles(p *Project) error {
 	if err := initGoMod(p.Name, p.Path); err != nil {
 		return err
 	}
-
-	return goGetPackages(p.Path, []string{"github.com/joho/godotenv"})
+	return goGetPackages(p.Path, append(g.modules, securityFloor...))
 }
 
-func fileGenerator(fileTypes []string, p *Project) {
-	templateMapper := templates.Mapper()
+// IsProjectNameTaken reports whether the project's directory already exists, as
+// anything, even an empty directory: New creates it with Mkdir, which would fail.
+func IsProjectNameTaken(name string) bool {
+	_, err := os.Lstat(DirectoryName(name))
+	return err == nil
+}
+
+// IsValidProjectName reports whether name yields a usable directory and module
+// path: one that starts with a letter or digit, so neither `go mod init` nor
+// another command reads it as a flag.
+func IsValidProjectName(name string) bool {
+	module := ModulePath(name)
+	if module == "" {
+		return false
+	}
+	first := module[0]
+	return ('a' <= first && first <= 'z') || ('A' <= first && first <= 'Z') || ('0' <= first && first <= '9')
+}
+
+// ModulePath is the go.mod module path for name: whitespace and characters a
+// module path can't hold become '-'. Case is kept, so github.com/Acme/svc stays
+// as written.
+func ModulePath(name string) string {
+	return replaceNonAlphanumeric(name, "/")
+}
+
+// DirectoryName is the directory created for name: the module path with '/'
+// replaced too, lowercased.
+func DirectoryName(name string) string {
+	return strings.ToLower(replaceNonAlphanumeric(name))
+}
+
+// fileGenerator renders the templates named by keys, concatenated in order, into
+// the output path of the last key (concatenated templates share one path), and
+// gofmt's Go output.
+func fileGenerator(keys []string, p *Project) error {
 	var concatenatedContent strings.Builder
 	var fileName string
 
-	for _, fileType := range fileTypes {
-		fileTemplate, name := templateMapper[fileType]()
-		fileName = name
-		concatenatedContent.WriteString(string(fileTemplate) + "\n\n")
-	}
-
-	dir := filepath.Dir(filepath.Join(p.Path, fileName))
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-			fmt.Printf("Error creating directory: %s\n", err)
-			_ = os.RemoveAll(p.Path)
-			os.Exit(1)
+	for _, key := range keys {
+		content, name, err := templates.Lookup(key)
+		if err != nil {
+			return err
 		}
+		fileName = name
+		concatenatedContent.Write(content)
+		concatenatedContent.WriteString("\n\n")
 	}
 
-	tmpl := template.Must(
-		template.New(fileName).Parse(concatenatedContent.String()),
-	)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(p.Path, fileName)), 0755); err != nil {
+		return err
+	}
+
+	tmpl, err := template.New(fileName).Parse(concatenatedContent.String())
+	if err != nil {
+		return fmt.Errorf("%s: %w", fileName, err)
+	}
 
 	var rendered bytes.Buffer
 	if err := tmpl.Execute(&rendered, p); err != nil {
-		fmt.Println(err)
-		_ = os.RemoveAll(p.Path)
-		os.Exit(1)
+		return fmt.Errorf("%s: %w", fileName, err)
 	}
 
 	content := rendered.Bytes()
@@ -184,12 +186,11 @@ func fileGenerator(fileTypes []string, p *Project) {
 	}
 
 	if err := os.WriteFile(filepath.Join(p.Path, fileName), content, 0644); err != nil {
-		fmt.Println(err)
-		_ = os.RemoveAll(p.Path)
-		os.Exit(1)
+		return err
 	}
 
 	color.Green(fileName + " created")
+	return nil
 }
 
 func executeCommand(name string, args []string, dir string) error {
@@ -214,7 +215,7 @@ func executeCommand(name string, args []string, dir string) error {
 // scaffolds, so generated projects target a consistent Go version regardless of
 // the user's local toolchain. Keep it in lockstep with the `go` directive in
 // this repo's go.mod (and the README) whenever the supported Go version is bumped.
-const generatedGoVersion = "1.27.1"
+const generatedGoVersion = "1.27.3"
 
 func initGoMod(projectName string, appDir string) error {
 	if err := executeCommand("go", []string{"mod", "init", projectName}, appDir); err != nil {
@@ -236,16 +237,17 @@ func goModTidy(appDir string) error {
 	return executeCommand("go", []string{"mod", "tidy"}, appDir)
 }
 
-func goGetPackages(appDir string, packages []string) error {
-	for _, packageName := range packages {
-		if err := executeCommand("go",
-			[]string{"get", "-u", packageName},
-			appDir); err != nil {
-			return err
-		}
+// goGetPackages adds modules to the generated go.mod at their pinned versions
+// (see modulePins), in one `go get` so the module graph is resolved once.
+func goGetPackages(appDir string, modules []string) error {
+	if len(modules) == 0 {
+		return nil
 	}
-
-	return nil
+	args, err := pinned(modules)
+	if err != nil {
+		return err
+	}
+	return executeCommand("go", append([]string{"get"}, args...), appDir)
 }
 
 func replaceNonAlphanumeric(input string, exclude ...string) string {
@@ -255,5 +257,5 @@ func replaceNonAlphanumeric(input string, exclude ...string) string {
 	} else {
 		nonAlphanumericRegex = regexp.MustCompile("[^a-zA-Z0-9._]")
 	}
-	return nonAlphanumericRegex.ReplaceAllString(strings.TrimSpace(strings.ToLower(input)), "-")
+	return nonAlphanumericRegex.ReplaceAllString(strings.TrimSpace(input), "-")
 }

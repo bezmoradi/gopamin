@@ -1,65 +1,127 @@
+// Package redis publishes to and subscribes to one Redis pub/sub channel.
+//
+// Pub/sub is at-most-once: Redis delivers a message only to the subscribers
+// connected at that moment and keeps nothing, so a message published while this
+// process is down or reconnecting is lost, and every replica receives every
+// message. Use Kafka or RabbitMQ when a message must not be lost.
 package redis
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/shared"
+	"net"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-type redisBroker struct {
+const (
+	// connectTimeout bounds the dial and the subscription, so an unreachable
+	// server stops the app within seconds.
+	connectTimeout = 5 * time.Second
+	// publishTimeout bounds one publish.
+	publishTimeout = 2 * time.Second
+	// handlerTimeout bounds one attempt at processing a message.
+	handlerTimeout = 30 * time.Second
+	// minBackoff and maxBackoff bound the wait between attempts at a message
+	// whose handler failed.
+	minBackoff = 500 * time.Millisecond
+	maxBackoff = 30 * time.Second
+)
+
+// Broker publishes to and subscribes to the channel REDIS_CHANNEL.
+type Broker struct {
 	client  *redis.Client
 	sub     *redis.PubSub
 	channel string
 }
 
-func New(channel string, logger shared.Logger) (*redisBroker, error) {
-	host := os.Getenv("REDIS_HOST")
-	port := os.Getenv("REDIS_PORT")
-
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%v:%v", host, port),
-		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       0,
-	})
-
-	// Subscribe eagerly, at construction, and block until the server confirms the
-	// subscription. Redis pub/sub drops any message published while the channel has
-	// no subscriber, so a producer that runs before the consumer subscribes would be
-	// lost. Confirming the subscription here guarantees it is live before Produce is
-	// ever called.
-	sub := client.Subscribe(context.Background(), channel)
-	if _, err := sub.Receive(context.Background()); err != nil {
-		_ = sub.Close()
-		_ = client.Close()
-		return nil, err
+// New connects with the REDIS_* environment (REDIS_TLS=true for TLS) and
+// subscribes before returning, because pub/sub drops a message published while
+// nobody is subscribed: the sample message main publishes would be lost.
+func New() (*Broker, error) {
+	channel := os.Getenv("REDIS_CHANNEL")
+	if channel == "" {
+		return nil, errors.New("REDIS_CHANNEL is not set")
 	}
 
-	return &redisBroker{client: client, sub: sub, channel: channel}, nil
+	host := os.Getenv("REDIS_HOST")
+	options := &redis.Options{
+		Addr:        net.JoinHostPort(host, os.Getenv("REDIS_PORT")),
+		Password:    os.Getenv("REDIS_PASSWORD"),
+		DialTimeout: connectTimeout,
+	}
+	if os.Getenv("REDIS_TLS") == "true" {
+		options.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: host}
+	}
+	client := redis.NewClient(options)
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+	sub := client.Subscribe(ctx, channel)
+	if _, err := sub.Receive(ctx); err != nil {
+		_ = sub.Close()
+		_ = client.Close()
+		return nil, fmt.Errorf("cannot reach Redis: %w", err)
+	}
+
+	return &Broker{client: client, sub: sub, channel: channel}, nil
 }
 
-func (r redisBroker) Close() error {
-	_ = r.sub.Close()
-	return r.client.Close()
+// Produce publishes body to the channel's current subscribers.
+func (b *Broker) Produce(ctx context.Context, body []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
+	defer cancel()
+	return b.client.Publish(ctx, b.channel, body).Err()
 }
 
-func (r redisBroker) Produce(ctx context.Context, value []byte) error {
-	return r.client.Publish(ctx, r.channel, value).Err()
-}
-
-func (r redisBroker) Consume(ctx context.Context, handler func(value []byte)) error {
-	ch := r.sub.Channel()
+// Consume hands each message to handler, retrying a failing handler with
+// backoff. Messages that arrive meanwhile wait in the client's buffer, which
+// drops them once full. Consume returns nil when ctx ends.
+func (b *Broker) Consume(ctx context.Context, handler func(context.Context, []byte) error) error {
+	messages := b.sub.Channel()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case msg, ok := <-ch:
+		case message, ok := <-messages:
 			if !ok {
 				return nil
 			}
-			handler([]byte(msg.Payload))
+			if !process(ctx, []byte(message.Payload), handler) {
+				return nil
+			}
 		}
 	}
+}
+
+// process runs handler until it succeeds, waiting longer after each failure.
+// Each attempt gets its own timeout and isn't cancelled by ctx, so shutdown
+// never interrupts a write halfway; it only stops further attempts. process
+// reports false if ctx ended before handler succeeded.
+func process(ctx context.Context, body []byte, handler func(context.Context, []byte) error) bool {
+	backoff := minBackoff
+	for {
+		attemptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), handlerTimeout)
+		err := handler(attemptCtx, body)
+		cancel()
+		if err == nil {
+			return true
+		}
+
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxBackoff)
+	}
+}
+
+// Close unsubscribes and closes the connection pool.
+func (b *Broker) Close() error {
+	return errors.Join(b.sub.Close(), b.client.Close())
 }

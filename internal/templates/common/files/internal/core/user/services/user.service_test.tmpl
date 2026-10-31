@@ -6,17 +6,16 @@ import (
 	"reflect"
 	"testing"
 
-	"{{.Name}}/internal/adapters/repositories/mock"
 	"{{.Name}}/internal/core/user/domain"
 )
 
 func TestCreate(t *testing.T) {
 	ctx := context.Background()
-	mockRepository := mock.MockRepository{}
-	us := NewUserService(&mockRepository)
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
 
 	t.Run("should return an ID", func(t *testing.T) {
-		mockRepository.SpyOnInsert = func(ctx context.Context, name string) (string, error) {
+		repo.insert = func(ctx context.Context, name string) (string, error) {
 			return "1", nil
 		}
 
@@ -27,7 +26,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnInsert = func(ctx context.Context, name string) (string, error) {
+		repo.insert = func(ctx context.Context, name string) (string, error) {
 			return "", errors.New("error inserting a new record")
 		}
 
@@ -45,25 +44,63 @@ func TestCreate(t *testing.T) {
 	})
 }
 
-func TestUpdate(t *testing.T) {
+{{if eq .ProjectType "worker"}}func TestCreateOnce(t *testing.T) {
 	ctx := context.Background()
-	mockRepository := mock.MockRepository{}
-	us := NewUserService(&mockRepository)
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
 
-	t.Run("should return rows affected", func(t *testing.T) {
-		mockRepository.SpyOnUpdate = func(ctx context.Context, id string, name string) (int64, error) {
-			return 1, nil
+	t.Run("should pass the key and name to the repository", func(t *testing.T) {
+		var gotKey, gotName string
+		repo.insertOnce = func(ctx context.Context, key string, name string) error {
+			gotKey, gotName = key, name
+			return nil
 		}
 
-		res, _ := us.Update(ctx, "1", "John")
-		if res != 1 {
-			t.Errorf("should return 1 but it returned %v", res)
+		if err := us.CreateOnce(ctx, "key-1", "John"); err != nil {
+			t.Fatalf("should return nil but it returned %v", err)
+		}
+		if gotKey != "key-1" || gotName != "John" {
+			t.Errorf("should insert key-1/John but inserted %q/%q", gotKey, gotName)
+		}
+	})
+
+	t.Run("should return an error if name is empty", func(t *testing.T) {
+		if err := us.CreateOnce(ctx, "key-2", ""); !errors.Is(err, domain.ErrNameRequired) {
+			t.Errorf("expected domain.ErrNameRequired but received %v", err)
+		}
+	})
+}
+
+{{end}}func TestUpdate(t *testing.T) {
+	ctx := context.Background()
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
+
+	t.Run("should return the updated user", func(t *testing.T) {
+		repo.update = func(ctx context.Context, id string, name string) error {
+			return nil
+		}
+
+		res, err := us.Update(ctx, "1", "John")
+		if err != nil || res != (domain.User{ID: "1", Name: "John"}) {
+			t.Errorf("should return user 1 named John but it returned %v, %v", res, err)
+		}
+	})
+
+	t.Run("should return not found", func(t *testing.T) {
+		repo.update = func(ctx context.Context, id string, name string) error {
+			return domain.ErrUserNotFound
+		}
+
+		_, err := us.Update(ctx, "1", "John")
+		if !errors.Is(err, domain.ErrUserNotFound) {
+			t.Errorf("expected domain.ErrUserNotFound but received %v", err)
 		}
 	})
 
 	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnUpdate = func(ctx context.Context, id string, name string) (int64, error) {
-			return 0, errors.New("error updating a record")
+		repo.update = func(ctx context.Context, id string, name string) error {
+			return errors.New("error updating a record")
 		}
 
 		_, err := us.Update(ctx, "1", "John")
@@ -82,51 +119,49 @@ func TestUpdate(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
-	mockRepository := mock.MockRepository{}
-	us := NewUserService(&mockRepository)
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
 
-	t.Run("should return rows affected", func(t *testing.T) {
-		mockRepository.SpyOnDelete = func(ctx context.Context, id string) (int64, error) {
-			return 1, nil
+	t.Run("should delete", func(t *testing.T) {
+		repo.delete = func(ctx context.Context, id string) error {
+			return nil
 		}
 
-		res, _ := us.Delete(ctx, "1")
-		if res != 1 {
-			t.Errorf("should return 1 but it returned %v", res)
+		if err := us.Delete(ctx, "1"); err != nil {
+			t.Errorf("should return nil but it returned %v", err)
 		}
 	})
 
-	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnDelete = func(ctx context.Context, id string) (int64, error) {
-			return 0, errors.New("error deleting a record")
+	t.Run("should return not found", func(t *testing.T) {
+		repo.delete = func(ctx context.Context, id string) error {
+			return domain.ErrUserNotFound
 		}
 
-		_, err := us.Delete(ctx, "1")
-		if err == nil {
-			t.Error("should return error but it didn't")
+		if err := us.Delete(ctx, "1"); !errors.Is(err, domain.ErrUserNotFound) {
+			t.Errorf("expected domain.ErrUserNotFound but received %v", err)
 		}
 	})
 }
 
 func TestShow(t *testing.T) {
 	ctx := context.Background()
-	mockRepository := mock.MockRepository{}
-	us := NewUserService(&mockRepository)
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
 
 	t.Run("should return user by ID", func(t *testing.T) {
-		user := domain.User{Id: "1", Name: "John"}
-		mockRepository.SpyOnFetch = func(ctx context.Context, id string) (domain.User, error) {
+		user := domain.User{ID: "1", Name: "John"}
+		repo.fetch = func(ctx context.Context, id string) (domain.User, error) {
 			return user, nil
 		}
 
 		res, _ := us.Show(ctx, "1")
-		if res.Id != "1" {
+		if res.ID != "1" {
 			t.Errorf("should return 1 but it returned %v", res)
 		}
 	})
 
 	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnFetch = func(ctx context.Context, id string) (domain.User, error) {
+		repo.fetch = func(ctx context.Context, id string) (domain.User, error) {
 			return domain.User{}, errors.New("user not found")
 		}
 
@@ -139,16 +174,16 @@ func TestShow(t *testing.T) {
 
 func TestIndex(t *testing.T) {
 	ctx := context.Background()
-	mockRepository := mock.MockRepository{Users: []domain.User{}}
-	us := NewUserService(&mockRepository)
+	repo := fakeRepository{}
+	us := NewUserService(&repo)
 
 	t.Run("should return users", func(t *testing.T) {
 		expectedResult := domain.Page{Items: []domain.User{
-			{Id: "1", Name: "John"},
-			{Id: "2", Name: "Jane"},
+			{ID: "1", Name: "John"},
+			{ID: "2", Name: "Jane"},
 		}}
 
-		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+		repo.fetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 			return expectedResult, nil
 		}
 
@@ -159,7 +194,7 @@ func TestIndex(t *testing.T) {
 	})
 
 	t.Run("should return an empty list", func(t *testing.T) {
-		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+		repo.fetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 			return domain.Page{}, nil
 		}
 
@@ -170,7 +205,7 @@ func TestIndex(t *testing.T) {
 	})
 
 	t.Run("should return an error", func(t *testing.T) {
-		mockRepository.SpyOnFetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+		repo.fetchAll = func(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 			return domain.Page{}, errors.New("error fetching users")
 		}
 
@@ -179,4 +214,44 @@ func TestIndex(t *testing.T) {
 			t.Error("should return an error but it didn't")
 		}
 	})
+}
+
+// fakeRepository implements the repository port for these tests: each method
+// calls the matching func, which a test sets for its case. Being defined here,
+// it keeps the service tests free of any adapter.
+type fakeRepository struct {
+	insert func(ctx context.Context, name string) (string, error)
+{{- if eq .ProjectType "worker"}}
+	insertOnce func(ctx context.Context, key string, name string) error
+{{- end}}
+	update   func(ctx context.Context, id string, name string) error
+	delete   func(ctx context.Context, id string) error
+	fetch    func(ctx context.Context, id string) (domain.User, error)
+	fetchAll func(ctx context.Context, limit int, cursor string) (domain.Page, error)
+}
+
+func (f *fakeRepository) Insert(ctx context.Context, name string) (string, error) {
+	return f.insert(ctx, name)
+}
+{{- if eq .ProjectType "worker"}}
+
+func (f *fakeRepository) InsertOnce(ctx context.Context, key string, name string) error {
+	return f.insertOnce(ctx, key, name)
+}
+{{- end}}
+
+func (f *fakeRepository) Update(ctx context.Context, id string, name string) error {
+	return f.update(ctx, id, name)
+}
+
+func (f *fakeRepository) Delete(ctx context.Context, id string) error {
+	return f.delete(ctx, id)
+}
+
+func (f *fakeRepository) Fetch(ctx context.Context, id string) (domain.User, error) {
+	return f.fetch(ctx, id)
+}
+
+func (f *fakeRepository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+	return f.fetchAll(ctx, limit, cursor)
 }

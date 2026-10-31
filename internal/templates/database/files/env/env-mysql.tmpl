@@ -1,7 +1,8 @@
-# MySQL
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_DATABASE=mysql-testing
-MYSQL_USERNAME=john
-MYSQL_PASSWORD=doe
-MYSQL_ROOT_PASSWORD=john_doe
+{{$env := "MYSQL"}}{{$title := "MySQL"}}{{if eq .Database "mariadb"}}{{$env = "MARIADB"}}{{$title = "MariaDB"}}{{end -}}
+# {{$title}}
+{{$env}}_HOST=localhost
+{{$env}}_PORT=3306
+{{$env}}_DATABASE={{.Database}}-testing
+{{$env}}_USERNAME=app
+{{$env}}_PASSWORD={{.Secrets.DatabasePassword}}
+{{$env}}_ROOT_PASSWORD={{.Secrets.DatabaseRootPassword}}

@@ -24,26 +24,6 @@ In order to stop the container and at the same time remove the volume related to
 $ make docker-down-rm-vol
 ```
 
-### Create A Keyspace
+### Keyspace
 
-This is an important step while using the Cassandra database. In the context of Apache Cassandra, a keyspace is the top-level structure that holds data. It can be thought of as similar to a database in a relational database management system (RDBMS) like MySQL or PostgreSQL. To do that, you can use the `cqlsh` utility to connect to Cassandra:
-
-```text
-$ docker exec -it <CONTAINER_ID> cqlsh
-```
-
-Then you need to run the following command to create a new keyspace:
-
-```text
-cqlsh> CREATE KEYSPACE test_keyspace WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
-```
-
-If you decide to change `test_keyspace` to some other name, make sure to update the value of `cluster.Keyspace` inside `internal/adapters/repositories/cassandra/repository.go` file as well.  
-To make sure the new keyspace is create successfully, you can run the following command:
-
-```text
-cqlsh> DESCRIBE KEYSPACES;
-
-system       system_distributed  system_traces  system_virtual_schema
-system_auth  system_schema       system_views   test_keyspace
-```
+On first start the app creates the keyspace `test_keyspace` and the `users` table if they don't exist. The keyspace it creates uses `SimpleStrategy` with replication factor 1, which suits this single local node only. On a real cluster, create the keyspace yourself before the first start, for example with `NetworkTopologyStrategy` and replication factor 3; the app leaves an existing keyspace as it is. The name is the `keyspace` constant in `internal/adapters/repositories/cassandra/repository.go`.

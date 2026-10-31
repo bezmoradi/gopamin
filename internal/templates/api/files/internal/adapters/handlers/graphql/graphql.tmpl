@@ -1,13 +1,20 @@
 package graphql
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"os"
 
 	"{{.Name}}/internal/core/shared"
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/core/user/ports"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/gqlerrors"
+	"github.com/graphql-go/graphql/language/ast"
+	"github.com/graphql-go/graphql/language/parser"
 )
 
 // errInternal is what a server-side fault tells the client. The underlying
@@ -15,7 +22,163 @@ import (
 // host names, and query text. It is logged instead — see sanitize.
 var errInternal = errors.New("internal server error")
 
-func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schema {
+// Query limits. Every root field is a datastore call, so without a cap aliases
+// (`a: users b: users ...`) turn one small request into hundreds of queries.
+const (
+	maxRootFields = 10
+	maxFields     = 100
+)
+
+// NewHandler serves the user schema; cmd/server mounts it at /graphql. Only a POST
+// with a JSON body is accepted (middleware.RequireJSON enforces the media type):
+// no GET, no form posts and no operation in the URL, so a cross-site link or form
+// can't run a mutation. There is no Playground, and introspection is refused
+// unless GRAPHQL_INTROSPECTION=true.
+func NewHandler(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	schema := newSchema(service, logger)
+	allowIntrospection := os.Getenv("GRAPHQL_INTROSPECTION") == "true"
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeResult(w, http.StatusMethodNotAllowed, failure("use POST with a JSON body"))
+			return
+		}
+		if r.URL.RawQuery != "" {
+			writeResult(w, http.StatusBadRequest, failure("send the operation in the JSON body, not the URL"))
+			return
+		}
+
+		var req struct {
+			Query         string         `json:"query"`
+			OperationName string         `json:"operationName"`
+			Variables     map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				writeResult(w, http.StatusRequestEntityTooLarge, failure("request body too large"))
+				return
+			}
+			writeResult(w, http.StatusBadRequest, failure("malformed JSON body"))
+			return
+		}
+
+		doc, err := parser.Parse(parser.ParseParams{Source: req.Query})
+		if err != nil {
+			writeResult(w, http.StatusBadRequest, &graphql.Result{Errors: gqlerrors.FormatErrors(err)})
+			return
+		}
+		if err := checkLimits(doc, allowIntrospection); err != nil {
+			writeResult(w, http.StatusBadRequest, failure(err.Error()))
+			return
+		}
+		if v := graphql.ValidateDocument(&schema, doc, nil); !v.IsValid {
+			writeResult(w, http.StatusBadRequest, &graphql.Result{Errors: v.Errors})
+			return
+		}
+
+		writeResult(w, http.StatusOK, graphql.Execute(graphql.ExecuteParams{
+			Schema:        schema,
+			AST:           doc,
+			OperationName: req.OperationName,
+			Args:          req.Variables,
+			Context:       r.Context(),
+		}))
+	})
+}
+
+func failure(message string) *graphql.Result {
+	return &graphql.Result{Errors: []gqlerrors.FormattedError{gqlerrors.NewFormattedError(message)}}
+}
+
+func writeResult(w http.ResponseWriter, status int, result *graphql.Result) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+// checkLimits rejects a document that selects more than maxFields fields in
+// total or more than maxRootFields root fields in an operation, or that
+// introspects the schema while introspection is off.
+func checkLimits(doc *ast.Document, allowIntrospection bool) error {
+	fragments := map[string]*ast.FragmentDefinition{}
+	for _, def := range doc.Definitions {
+		if f, ok := def.(*ast.FragmentDefinition); ok && f.Name != nil {
+			fragments[f.Name.Value] = f
+		}
+	}
+
+	fields := 0
+	var walk func(set *ast.SelectionSet) error
+	walk = func(set *ast.SelectionSet) error {
+		if set == nil {
+			return nil
+		}
+		for _, sel := range set.Selections {
+			switch s := sel.(type) {
+			case *ast.Field:
+				if fields++; fields > maxFields {
+					return fmt.Errorf("query selects more than %d fields", maxFields)
+				}
+				if !allowIntrospection && s.Name != nil && (s.Name.Value == "__schema" || s.Name.Value == "__type") {
+					return errors.New("introspection is disabled")
+				}
+				if err := walk(s.SelectionSet); err != nil {
+					return err
+				}
+			case *ast.InlineFragment:
+				if err := walk(s.SelectionSet); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for _, def := range doc.Definitions {
+		switch d := def.(type) {
+		case *ast.OperationDefinition:
+			if n := rootFields(d.SelectionSet, fragments, map[string]bool{}); n > maxRootFields {
+				return fmt.Errorf("operation selects more than %d root fields", maxRootFields)
+			}
+			if err := walk(d.SelectionSet); err != nil {
+				return err
+			}
+		case *ast.FragmentDefinition:
+			if err := walk(d.SelectionSet); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// rootFields counts the fields an operation selects at the root, following
+// inline fragments and fragment spreads (each named fragment once).
+func rootFields(set *ast.SelectionSet, fragments map[string]*ast.FragmentDefinition, seen map[string]bool) int {
+	if set == nil {
+		return 0
+	}
+	n := 0
+	for _, sel := range set.Selections {
+		switch s := sel.(type) {
+		case *ast.Field:
+			n++
+		case *ast.InlineFragment:
+			n += rootFields(s.SelectionSet, fragments, seen)
+		case *ast.FragmentSpread:
+			if s.Name != nil && !seen[s.Name.Value] {
+				seen[s.Name.Value] = true
+				if f := fragments[s.Name.Value]; f != nil {
+					n += rootFields(f.SelectionSet, fragments, seen)
+				}
+			}
+		}
+	}
+	return n
+}
+
+func newSchema(service ports.UserServiceInterface, logger shared.Logger) graphql.Schema {
 	// sanitize decides what the response's errors array may show: a domain
 	// sentinel's text is written by us and safe to echo; anything else — a driver
 	// or broker failure — is logged for an operator and collapses to errInternal
@@ -141,8 +304,8 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 				},
 			},
 			"update": &graphql.Field{
-				Type:        graphql.String,
-				Description: "Update user by ID",
+				Type:        userType,
+				Description: "Update user by ID; returns the updated user",
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Type: graphql.NewNonNull(graphql.String),
@@ -157,16 +320,16 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 						return nil, errors.New("id argument is required and must be a string")
 					}
 					name, _ := params.Args["name"].(string)
-					rowsAffected, err := service.Update(params.Context, id, name)
+					user, err := service.Update(params.Context, id, name)
 					if err != nil {
 						return nil, sanitize("update user", err)
 					}
-					return rowsAffected, nil
+					return user, nil
 				},
 			},
 			"delete": &graphql.Field{
-				Type:        graphql.String,
-				Description: "Delete user by ID",
+				Type:        graphql.Boolean,
+				Description: "Delete user by ID; returns true",
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Type: graphql.NewNonNull(graphql.String),
@@ -177,11 +340,10 @@ func New(service ports.UserServiceInterface, logger shared.Logger) graphql.Schem
 					if !ok {
 						return nil, errors.New("id argument is required and must be a string")
 					}
-					rowsAffected, err := service.Delete(params.Context, id)
-					if err != nil {
+					if err := service.Delete(params.Context, id); err != nil {
 						return nil, sanitize("delete user", err)
 					}
-					return rowsAffected, nil
+					return true, nil
 				},
 			},
 		},

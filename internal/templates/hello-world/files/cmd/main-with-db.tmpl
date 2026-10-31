@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
@@ -20,72 +19,82 @@ func init() {
 // userPayload is this demo's JSON shape. The domain entity carries no wire-format
 // tags, so the composition root owns how a user is serialized for output.
 type userPayload struct {
-	Id   string `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-func insert(us ports.UserServiceInterface, logger shared.Logger, value string) {
-	lastInsertID, err := us.Create(context.Background(), value)
+func insert(us ports.UserServiceInterface, logger shared.Logger, value string) error {
+	id, err := us.Create(context.Background(), value)
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
-	logger.Info(fmt.Sprintf("last inserted ID: %v", lastInsertID))
+	logger.Info("user created", "id", id)
+	return nil
 }
 
-func fetch(us ports.UserServiceInterface, logger shared.Logger, id string) {
+func fetch(us ports.UserServiceInterface, logger shared.Logger, id string) error {
 	user, err := us.Show(context.Background(), id)
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
 
-	data, err := json.Marshal(userPayload{Id: user.Id, Name: user.Name})
+	data, err := json.Marshal(userPayload{ID: user.ID, Name: user.Name})
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
-
 	logger.Info(string(data))
+	return nil
 }
 
-func update(us ports.UserServiceInterface, logger shared.Logger, id string, newName string) {
-	rowsAffected, err := us.Update(context.Background(), id, newName)
+func update(us ports.UserServiceInterface, logger shared.Logger, id string, newName string) error {
+	user, err := us.Update(context.Background(), id, newName)
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
-	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+	logger.Info("user updated", "id", user.ID, "name", user.Name)
+	return nil
 }
 
-func deleteUser(us ports.UserServiceInterface, logger shared.Logger, id string) {
-	rowsAffected, err := us.Delete(context.Background(), id)
-	if err != nil {
-		logger.Fatal(err)
+func deleteUser(us ports.UserServiceInterface, logger shared.Logger, id string) error {
+	if err := us.Delete(context.Background(), id); err != nil {
+		return err
 	}
-	logger.Info(fmt.Sprintf("rows effected: %v", rowsAffected))
+	logger.Info("user deleted", "id", id)
+	return nil
 }
 
-func fetchAll(us ports.UserServiceInterface, logger shared.Logger) {
+func fetchAll(us ports.UserServiceInterface, logger shared.Logger) error {
 	// This demo just prints the first page; pass page.NextCursor back as the
 	// third argument to walk subsequent pages.
 	page, err := us.Index(context.Background(), 0, "")
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
 
 	for _, user := range page.Items {
-		data, err := json.Marshal(userPayload{Id: user.Id, Name: user.Name})
+		data, err := json.Marshal(userPayload{ID: user.ID, Name: user.Name})
 		if err != nil {
-			logger.Fatal(err)
+			return err
 		}
 		logger.Info(string(data))
 	}
+	return nil
 }
-
 
 func main() {
 	logger := {{.Logger}}.New()
-	db, err := {{.Database}}.New(logger)
-	if err != nil {
+	if err := run(logger); err != nil {
 		logger.Fatal(err)
 	}
+}
+
+// run returns instead of exiting, so the deferred Close runs.
+func run(logger shared.Logger) error {
+	db, err := {{.Database}}.New()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
 	us := services.NewUserService(db)
 
 	// fetchAll runs below. The other helpers show the remaining operations — swap in
@@ -97,5 +106,5 @@ func main() {
 	// The blank assignment keeps them referenced so `make lint` stays clean until used.
 	_, _, _, _ = insert, fetch, update, deleteUser
 
-	fetchAll(us, logger)
+	return fetchAll(us, logger)
 }

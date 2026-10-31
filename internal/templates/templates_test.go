@@ -7,32 +7,14 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/bezmoradi/gopamin/internal/project"
 	"gopkg.in/yaml.v3"
 )
 
-// sampleProject mirrors the fields scaffolder.Project exposes to templates. It
-// is declared locally to avoid an import cycle with the scaffolder package.
-type sampleProject struct {
-	Name          string
-	Platform      string
-	Broker        string
-	Database      string
-	ProjectType   string
-	Logger        string
-	Path          string
-	GoVersion     string
-	CI            string
-	Observability string
-	Auth          string
-	OpenAPI       string
-}
-
-// PublishesEvents mirrors (*scaffolder.Project).PublishesEvents so templates that
-// branch on it render here too. It cannot delegate to the real one: scaffolder
-// imports this package, so importing it back would be a cycle.
-func (p sampleProject) PublishesEvents() bool {
-	return (p.ProjectType == "api" || p.ProjectType == "web-app") && p.Broker != ""
-}
+// sampleProject is the real template data type, so every predicate the
+// templates call (PublishesEvents, HasCompose, ...) renders here exactly as it
+// does in the scaffolder.
+type sampleProject = project.Project
 
 // TestAllTemplatesRenderAndParse is a hermetic smoke test (no network, no shell
 // out): every template in the registry must parse and execute, and every
@@ -142,7 +124,7 @@ func TestArchLintTemplateRendersValidConfig(t *testing.T) {
 	shapes := []sampleProject{
 		{ProjectType: "api", Platform: "echo", Broker: "kafka", Database: "postgres"},       // all components
 		{ProjectType: "api", Platform: "graphql", Database: "mysql"},                        // no api-response, no brokers
-		{ProjectType: "api", Platform: "chi"},                                               // no db (mock), no brokers
+		{ProjectType: "api", Platform: "chi"},                                               // no db (memory store), no brokers
 		{ProjectType: "web-app", Platform: "gin", Database: "mongodb"},                      // web, no api-response
 		{ProjectType: "web-app", Platform: "echo", Broker: "redis"},                         // web + brokers, no db
 		{ProjectType: "worker", Broker: "rabbitmq", Database: "postgres"},                   // core + brokers, no handlers

@@ -1,19 +1,23 @@
 ## API Guide
 
-This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`) to satisfy the service. Data is **not durable** — it resets every time the process restarts. Add a database with `gopamin new … -d <database>` for persistence.
+{{if not .Database -}}
+This project was created **without a database**, so it uses an in-memory repository (`internal/adapters/repositories/memory`) (wired in `cmd/main.go`) to satisfy the service. Data is **not durable** — it resets every time the process restarts. Add a database with `gopamin new … -d <database>` for persistence.
 
+{{end -}}
 The API is served under `http://localhost:8080/api/v1/users` (the port is `PORT` in `.env`, default `8080`).
 {{if .Auth}}
 ### Authentication
 
-Every `/users` route requires a JWT **bearer token** — without one you get `401`. Get a token from the demo login endpoint (credentials are `AUTH_USERNAME` / `AUTH_PASSWORD` in `.env`):
+Every `/users` route requires a JWT **bearer token** — without one you get `401`. Get a token from the demo login endpoint. The username is `AUTH_USERNAME` in `.env`; the password was printed once when the project was generated, and `.env` keeps only its hash (`AUTH_PASSWORD_HASH`). To set a new password, run `make hash-password` and put its output in `.env`.
 
 ```text
 curl --location --request POST 'http://localhost:8080/login' \
 --header 'Content-Type: application/json' \
---data '{"username": "admin", "password": "change-me"}'
+--data '{"username": "admin", "password": "<PASSWORD>"}'
 # -> {"token":"<JWT>"}
 ```
+
+The server refuses to start when a `JWT_*`/`AUTH_*` value is missing, too short or a demo value, so a container started without them exits instead of serving unprotected. `/login` allows 5 attempts per username and 20 per client address per minute, then answers `429` with `Retry-After`.
 
 Add `--header 'Authorization: Bearer <JWT>'` to every request below.
 {{end}}
@@ -69,7 +73,7 @@ The spec lives at `internal/adapters/api/openapi.yaml` — update it when you ad
 {{end}}{{if .Broker}}
 ### Events
 
-On a write (creating a user), the service publishes an event to **{{.Broker}}**, and a consumer loop runs alongside the HTTP server logging received messages. See the "Broker workflow" section of `AGENTS.md`.
+Each create, update and delete publishes an event to the **{{.Broker}}** {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} `{{.Slug}}-users`, and a consumer loop runs alongside the HTTP server logging each event's type and id. See the "Broker workflow" section of `AGENTS.md` for the event format and delivery guarantees.
 
 **{{.Broker}} runs in a container**: start it with `make docker-up` before `make run`, or the app cannot reach the broker. `make docker-down` stops it (`make docker-down-rm-vol` also drops the volume).
 {{end}}{{if .Observability}}

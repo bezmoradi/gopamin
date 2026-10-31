@@ -59,10 +59,6 @@ func (l logger) Fatal(err error) {
 	l.logger.Fatal(err)
 }
 
-func (l logger) Panic(err error) {
-	panic(err)
-}
-
 func prepareArgs(args ...any) logrus.Fields {
 	fields := logrus.Fields{}
 	if len(args)%2 != 0 {

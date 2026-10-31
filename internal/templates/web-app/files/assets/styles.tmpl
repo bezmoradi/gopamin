@@ -1,3 +1,56 @@
+/* A readable single column that works from phones to desktops. */
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+}
+
 body {
-    font-size: 20px;
+    margin: 0;
+}
+
+main {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+}
+
+h1 {
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    overflow-wrap: anywhere;
+}
+
+.users {
+    padding-left: 1.25rem;
+}
+
+.users li {
+    padding: 0.25rem 0;
+}
+
+a {
+    color: LinkText;
+}
+
+a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+nav {
+    margin-top: 1.5rem;
+}
+
+pre,
+code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+dt {
+    font-weight: 600;
+}
+
+dd {
+    margin: 0 0 1rem;
 }

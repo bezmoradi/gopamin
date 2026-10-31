@@ -23,26 +23,22 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       echo.New(),
 		globalPrefix: "/api/v1",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
 // The two live in one place so they cannot drift apart: every internal failure is
 // recorded for an operator exactly once, and the client is still told nothing that
 // could describe the datastore. Never write a 500 without going through here.
-func (router router) fail(c *echo.Context, operation string, err error) error {
+func (router *router) fail(c *echo.Context, operation string, err error) error {
 	router.logger.Error(operation+" failed", "error", err)
 	return c.JSON(http.StatusInternalServerError, api.Response{Error: failureLabel(err)})
 }

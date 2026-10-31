@@ -21,7 +21,7 @@ All boilerplates created by Gopamin are based on [The Clean Architecture](https:
 
 ## Prerequisites
 
-The minimum required tools for using the Gopamin CLI tool is Golang v1.27.1 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
+The minimum required tools for using the Gopamin CLI tool is Golang v1.27.3 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
 
 - **[Git](https://git-scm.com/)**: By default each new project created by this tool initializes a Git repo; that's why you need to make sure Git is installed on your machine.
 - **[Docker](https://www.docker.com)**: If you choose to create a new project with a containerized database, a message broker, and/or observability, a merged `docker-compose.yml` will be included in the root of the project for running those backends locally.
@@ -33,10 +33,10 @@ A project is defined by **orthogonal capabilities**: the **type** (`-t`) picks t
 
 | Flag | Description | Required | Options |
 |------|-------------|----------|---------|
-| `-n`, `--name` | Project name, or a full module path | Always | Any string; characters outside `A-Z a-z 0-9 . - _` are replaced with `-`. A module path such as `github.com/you/repo` also sets the `go.mod` module. |
+| `-n`, `--name` | Project name, or a full module path | Always | Any string starting with a letter or digit; characters outside `A-Z a-z 0-9 . - _` are replaced with `-`. A module path such as `github.com/You/repo` sets the `go.mod` module as written; the directory name is lowercased. |
 | `-t`, `--type` | The app's primary interface | Always | `hello-world`, `web-app`, `api`, `worker` |
 | `-f`, `--framework` | HTTP framework | `api` & `web-app` only | `echo`, `chi`, `gin`, `httprouter`, `gorilla`, `http` — plus `graphql` for `api` |
-| `-b`, `--broker` | Message broker — publishes an event on every write and runs a consumer loop | Required for `worker`; optional for `api` / `web-app` | `kafka`, `rabbitmq`, `redis` |
+| `-b`, `--broker` | Message broker — publishes a versioned event on every write and runs a consumer loop | Required for `worker`; optional for `api` / `web-app` | `kafka`, `rabbitmq`, `redis` |
 | `-d`, `--database` | Database | Optional (for any type) | `mysql`, `mariadb`, `postgres`, `mongodb`, `cassandra`, `sqlite`, `dynamodb`, `badgerdb` |
 | `-l`, `--logger` | Logging library | Always | `log`, `slog`, `logrus`, `zap` |
 | `-c`, `--ci` | CI pipeline (build, test, `make lint`, `make arch-check`) | Optional (for any type) | `github` (`.github/workflows/ci.yml`), `gitlab` (`.gitlab-ci.yml`) |
@@ -48,7 +48,9 @@ A few things worth knowing:
 
 - A `worker` is a **headless, broker-driven service** — it has no HTTP server (so it takes no `-f`) and is triggered by messages off its broker.
 - Adding `-b` to an `api` or `web-app` gives you one binary that runs the HTTP server **and** a broker consumer side by side, publishing an event on every write. In other words, "an API that is also a worker" is `-t api -f <framework> -b <broker>`.
-- When a containerized database and/or a broker is selected, a single merged `docker-compose.yml` (plus `docker-up` / `docker-down` make targets) is generated so every backend runs together for local development. Adding `-o otel` also merges an OpenTelemetry collector into that same compose file.
+- When a containerized database and/or a broker is selected, a single merged `docker-compose.yml` (plus `docker-up` / `docker-down` make targets) is generated so every backend runs together for local development. Adding `-o otel` also merges an OpenTelemetry collector into that same compose file. Its ports are published on `127.0.0.1` only, and the passwords in `.env` are generated per project.
+- Kafka and RabbitMQ deliver events **at least once**: a message is committed or acknowledged only after it is processed, and a worker with a database stores each event once. Redis pub/sub is **at most once**.
+- Every `api`, `web-app` and `worker` ships a `Dockerfile` (non-root distroless image); the generated `AGENTS.md` explains running it next to the compose services.
 - Redis is a broker/cache, offered only via `-b` — it is intentionally **not** a database option.
 - The cross-cutting flags stack: a single `api` can carry a framework, a broker, a database, a logger, CI, observability, auth, **and** OpenAPI docs all at once.
 - Every generated project ships a `.go-arch-lint.yml` plus `make arch` / `make arch-check` targets, so the Clean Architecture dependency rule is a **build-enforced** invariant, not just documentation.
@@ -66,7 +68,7 @@ Because the flags are orthogonal, you can combine them freely. Some representati
 | `gopamin new -n app -t api -f echo -b kafka -d postgres -l slog` | REST API that persists writes **and** publishes/consumes events |
 | `gopamin new -n app -t api -f graphql -d mysql -l zap` | GraphQL API + MySQL |
 | `gopamin new -n app -t web-app -f gin -d mongodb -l zap` | Server-rendered web app + MongoDB |
-| `gopamin new -n app -t worker -b rabbitmq -d postgres -l slog` | Headless worker: consume a message → persist it |
+| `gopamin new -n app -t worker -b rabbitmq -d postgres -l slog` | Headless worker: consume `user.created` events → store each once |
 | `gopamin new -n app -t worker -b kafka -l logrus` | Headless worker with no database |
 | `gopamin new -n app -t api -f echo -d postgres -l slog -a jwt -s swagger` | REST API + PostgreSQL, JWT-protected, with Swagger UI at `/swagger` |
 | `gopamin new -n app -t api -f chi -d mysql -l slog -o otel -c github` | REST API + MySQL, OpenTelemetry traces/metrics, and a GitHub Actions pipeline |
@@ -115,12 +117,13 @@ If the installation process goes well, from now on you can run the `gopamin` com
 
 ## Update
 
-Since this tool is still in development, bugs are being identified and addressed while new features are continuously integrated. To ensure users benefit from these bug fixes and additions, it's essential to have the latest version installed. Hence, a version check mechanism has been implemented within the tool. This mechanism automatically compares the installed version on your device with the latest release whenever the tool is accessed. If a disparity is detected between the two versions, you'll receive a prompt to update to the latest version before proceeding. As an example we have:
+`gopamin new` checks the Go module proxy for a newer release and, if there is one, prints a line like this before generating the project:
 
 ```text
-The newest version of the Gopamin CLI is 1.0.13 but the installed version on your system is v1.0.10.
-To get the latest features and likely bugfixes, please install the latest version by running 'go install github.com/bezmoradi/gopamin@1.0.13'
+Gopamin v1.3.0 is available (you have v1.2.0). To update, run: go install github.com/bezmoradi/gopamin@v1.3.0
 ```
+
+The check never blocks: it gives up silently after 3 seconds or on any network error. Other commands (`version`, `help`, completion) don't run it, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off.
 
 ## Guides
 

@@ -3,13 +3,17 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Document</title>
+        <title>User {{`{{.Name}}`}}</title>
         <link rel="stylesheet" href="/assets/styles.css" />
     </head>
     <body>
-        <h1>#{{`{{.Id}}`}}: {{`{{.Name}}`}}</h1>
+        <main>
+            <p><a href="/users">&larr; All users</a></p>
+            <h1>{{`{{.Name}}`}}</h1>
+            <dl>
+                <dt>ID</dt>
+                <dd><code>{{`{{.ID}}`}}</code></dd>
+            </dl>
+        </main>
     </body>
 </html>
-
-
-

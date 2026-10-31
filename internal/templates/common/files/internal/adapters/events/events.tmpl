@@ -1,0 +1,97 @@
+// Package events owns the wire format of the user events: a versioned JSON
+// envelope with a unique id. The core decides what happened (domain.Event); this
+// package decides the bytes, so the format can change without touching the core.
+package events
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"{{.Name}}/internal/core/user/domain"
+
+	"github.com/google/uuid"
+)
+
+// Version is the envelope version this package writes and reads. Bump it, and
+// keep reading the old one for a while, when the envelope changes incompatibly.
+const Version = 1
+
+// Envelope is every event on the wire:
+//
+//	{"id":"<uuid>","type":"user.created","version":1,"occurred_at":"…","data":{"id":"…","name":"…"}}
+//
+// id is unique per event, so a consumer can recognize a redelivery.
+type Envelope struct {
+	ID         string    `json:"id"`
+	Type       string    `json:"type"`
+	Version    int       `json:"version"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Data       User      `json:"data"`
+}
+
+// User is the user an event is about. A deletion carries only the id.
+type User struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// Encode wraps event in a new envelope with a fresh id.
+func Encode(event domain.Event) ([]byte, error) {
+	return json.Marshal(Envelope{
+		ID:         uuid.NewString(),
+		Type:       string(event.Kind),
+		Version:    Version,
+		OccurredAt: time.Now().UTC(),
+		Data:       User{ID: event.User.ID, Name: event.User.Name},
+	})
+}
+
+// ErrMalformed marks a message that isn't an envelope this package can read.
+// Retrying can't fix it, so a consumer should log it and move on.
+var ErrMalformed = errors.New("malformed event")
+
+// Decode parses and checks an envelope: valid JSON, the supported version, a
+// UUID id and a type. Unknown types decode fine; the consumer decides to ignore
+// them.
+func Decode(body []byte) (Envelope, error) {
+	var envelope Envelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return Envelope{}, fmt.Errorf("%w: %w", ErrMalformed, err)
+	}
+	if envelope.Version != Version {
+		return Envelope{}, fmt.Errorf("%w: unsupported version %d", ErrMalformed, envelope.Version)
+	}
+	if _, err := uuid.Parse(envelope.ID); err != nil {
+		return Envelope{}, fmt.Errorf("%w: id is not a UUID", ErrMalformed)
+	}
+	if envelope.Type == "" {
+		return Envelope{}, fmt.Errorf("%w: no type", ErrMalformed)
+	}
+	return envelope, nil
+}
+
+// Producer sends raw bytes; the broker adapters implement it.
+type Producer interface {
+	Produce(ctx context.Context, body []byte) error
+}
+
+// Publisher implements the core's EventPublisher port by encoding each event and
+// handing it to the broker.
+type Publisher struct {
+	producer Producer
+}
+
+func NewPublisher(producer Producer) *Publisher {
+	return &Publisher{producer: producer}
+}
+
+func (p *Publisher) Publish(ctx context.Context, event domain.Event) error {
+	body, err := Encode(event)
+	if err != nil {
+		return err
+	}
+	return p.producer.Produce(ctx, body)
+}

@@ -4,26 +4,64 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
+	"sync"
+	"time"
+
+	"{{.Name}}/internal/core/shared"
 )
+
+// readyTimeout bounds one readiness probe: a dependency that hangs counts as down.
+const readyTimeout = 2 * time.Second
+
+// Check is one dependency /readyz probes, such as the database.
+type Check struct {
+	Name  string
+	Probe func(context.Context) error
+}
 
 // Live reports process liveness: it returns 200 as long as the server is running.
 // Wire it to a liveness probe (GET /healthz).
 func Live(w http.ResponseWriter, _ *http.Request) {
-	writeStatus(w, http.StatusOK, "ok")
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-// Ready reports readiness to accept traffic: it returns 200 when the service is
-// ready. Extend it to check critical dependencies (database, broker) and return
-// http.StatusServiceUnavailable when any is down, so a readiness probe can gate
-// traffic (GET /readyz).
-func Ready(w http.ResponseWriter, _ *http.Request) {
-	writeStatus(w, http.StatusOK, "ready")
+// Ready returns the readiness handler (GET /readyz). It runs every check at once
+// under readyTimeout and answers 200 when all pass, or 503 naming the ones that
+// failed, so a readiness probe stops routing traffic to an instance whose
+// datastore is down. The causes go to the log, not to this unauthenticated
+// endpoint.
+func Ready(logger shared.Logger, checks ...Check) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+		defer cancel()
+
+		failed := make([]string, len(checks))
+		var wg sync.WaitGroup
+		for i, check := range checks {
+			wg.Go(func() {
+				if err := check.Probe(ctx); err != nil {
+					logger.Error("readiness check failed", "check", check.Name, "error", err)
+					failed[i] = check.Name
+				}
+			})
+		}
+		wg.Wait()
+
+		failed = slices.DeleteFunc(failed, func(name string) bool { return name == "" })
+		if len(failed) > 0 {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "failed": failed})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
+	}
 }
 
-func writeStatus(w http.ResponseWriter, code int, status string) {
+func writeJSON(w http.ResponseWriter, code int, body map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
+	_ = json.NewEncoder(w).Encode(body)
 }

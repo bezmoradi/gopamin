@@ -1,9 +1,10 @@
-## MySQL Setup
+{{$title := "MySQL"}}{{if eq .Database "mariadb"}}{{$title = "MariaDB"}}{{end -}}
+## {{$title}} Setup
 
 Since this project incorporates database integration, you must adhere to the following instructions before running the app.  
-A `docker-compose.yml` file is included in this project which will be used for creating a MySQL container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
+A `docker-compose.yml` file is included in this project which will be used for creating a {{$title}} container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
 
-### Run A MySQL Container
+### Run A {{$title}} Container
 
 First, make sure Docker is up and running on your machine. Then in the root path of the project run the following command:
 

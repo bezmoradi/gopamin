@@ -3,14 +3,12 @@ package dynamodb
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"{{.Name}}/internal/core/user/domain"
-	"{{.Name}}/internal/core/shared"
 	"os"
-	"slices"
-	"strconv"
+	"time"
+
+	"{{.Name}}/internal/core/user/domain"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -28,61 +26,93 @@ type dynamodbUser struct {
 	Name string `json:"name" dynamodbav:"firstName"`
 }
 
-type connection struct {
+// connectTimeout bounds startup and the readiness probe, so an unreachable
+// endpoint stops the app within seconds instead of on the first request.
+const connectTimeout = 5 * time.Second
+
+// tableActiveTimeout bounds the wait for a table New just created: on AWS a new
+// table takes a few seconds to become ACTIVE.
+const tableActiveTimeout = 2 * time.Minute
+
+// Repository stores users in DynamoDB.
+type Repository struct {
 	db *dynamodb.Client
-	logger shared.Logger
 }
 
 func mapDynamodbToUser(d dynamodbUser) domain.User {
 	return domain.User{
-		Id:   d.ID,
+		ID:   d.ID,
 		Name: d.Name,
 	}
 }
 
-func New(logger shared.Logger) (*connection, error) {
-	databaseAccessKeyID := os.Getenv("DYNAMODB_ACCESS_KEY_ID")
-	databaseSecretAccessKey := os.Getenv("DYNAMODB_SECRET_ACCESS_KEY")
-	databaseSessionToken := os.Getenv("DYNAMODB_SESSION_TOKEN")
-	databaseHost := os.Getenv("DYNAMODB_HOST")
-	databaseRegion := os.Getenv("DYNAMODB_REGION")
-	databasePort, err := strconv.Atoi(os.Getenv("DYNAMODB_PORT"))
+// New builds a client and creates the users table if it doesn't exist.
+//
+// Credentials come from the AWS SDK's default chain (environment, shared
+// profile, SSO, or the ECS/EC2/EKS role), unless DYNAMODB_ACCESS_KEY_ID and
+// DYNAMODB_SECRET_ACCESS_KEY are both set, as they are for DynamoDB Local.
+// DYNAMODB_REGION sets the region (else AWS_REGION), and DYNAMODB_ENDPOINT, when
+// set, points the client at DynamoDB Local instead of AWS.
+func New() (*Repository, error) {
+	var opts []func(*config.LoadOptions) error
+	if region := os.Getenv("DYNAMODB_REGION"); region != "" {
+		opts = append(opts, config.WithRegion(region))
+	}
+	accessKeyID := os.Getenv("DYNAMODB_ACCESS_KEY_ID")
+	secretAccessKey := os.Getenv("DYNAMODB_SECRET_ACCESS_KEY")
+	switch {
+	case accessKeyID != "" && secretAccessKey != "":
+		opts = append(opts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, os.Getenv("DYNAMODB_SESSION_TOKEN")),
+		))
+	case accessKeyID != "" || secretAccessKey != "":
+		return nil, errors.New("set both DYNAMODB_ACCESS_KEY_ID and DYNAMODB_SECRET_ACCESS_KEY, or neither to use the default AWS credential chain")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion(databaseRegion),
-		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-			Value: aws.Credentials{
-				AccessKeyID: databaseAccessKeyID, SecretAccessKey: databaseSecretAccessKey, SessionToken: databaseSessionToken,
-			},
-		}),
-	)
-	if err != nil {
-		return nil, err
+	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
+	r := &Repository{db: dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+		}
+	})}
+	if err := r.ensureTable(ctx); err != nil {
+		return nil, fmt.Errorf("cannot reach DynamoDB: %w", err)
 	}
 
-	c := &connection{db: dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String(fmt.Sprintf("%v:%d", databaseHost, databasePort))
-	}), logger: logger}
-	if err := c.CreateTable(); err != nil {
-		return nil, err
-	}
-
-	return c, nil
+	return r, nil
 }
 
-func (c *connection) CreateTable() error {
-	tables, err := c.db.ListTables(context.TODO(), &dynamodb.ListTablesInput{})
-	if err != nil {
-		return err
-	}
-	if slices.Contains(tables.TableNames, tableName) {
+// Ping reports whether DynamoDB answers and the table exists; /readyz calls it.
+func (r *Repository) Ping(ctx context.Context) error {
+	_, err := r.db.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
+	return err
+}
+
+// Close is a no-op: the client holds no connection that needs releasing. It
+// exists so every repository closes the same way.
+func (r *Repository) Close() error {
+	return nil
+}
+
+// ensureTable creates the users table if DescribeTable says it doesn't exist,
+// then waits until it is ACTIVE.
+func (r *Repository) ensureTable(ctx context.Context) error {
+	err := r.Ping(ctx)
+	if err == nil {
 		return nil
 	}
+	if _, notFound := errors.AsType[*types.ResourceNotFoundException](err); !notFound {
+		return err
+	}
 
-	_, err = c.db.CreateTable(context.TODO(), &dynamodb.CreateTableInput{
+	_, err = r.db.CreateTable(ctx, &dynamodb.CreateTableInput{
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
 				AttributeName: aws.String("id"),
@@ -102,17 +132,29 @@ func (c *connection) CreateTable() error {
 		return err
 	}
 
-	return nil
+	return dynamodb.NewTableExistsWaiter(r.db).Wait(
+		context.Background(),
+		&dynamodb.DescribeTableInput{TableName: aws.String(tableName)},
+		tableActiveTimeout,
+	)
 }
 
-func (c *connection) Insert(ctx context.Context, name string) (string, error) {
+// validID reports whether id could be a key: Insert issues UUIDs, and anything
+// else (including an id past DynamoDB's key size limit) can't match an item, so
+// it is a miss rather than a ValidationException.
+func validID(id string) bool {
+	_, err := uuid.Parse(id)
+	return err == nil
+}
+
+func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	id := uuid.New()
 
 	item := map[string]types.AttributeValue{
 		"id":        &types.AttributeValueMemberS{Value: id.String()},
 		"firstName": &types.AttributeValueMemberS{Value: name},
 	}
-	_, err := c.db.PutItem(ctx, &dynamodb.PutItemInput{
+	_, err := r.db.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:           aws.String(tableName),
 		Item:                item,
 		ConditionExpression: aws.String("attribute_not_exists(id)"),
@@ -125,7 +167,32 @@ func (c *connection) Insert(ctx context.Context, name string) (string, error) {
 	return id.String(), nil
 }
 
-func (c *connection) Update(ctx context.Context, id, updatedName string) (int64, error) {
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user whose id is key (a consumed event's id, a UUID)
+// unless that item already exists.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	if !validID(key) {
+		return fmt.Errorf("event id %q is not a UUID", key)
+	}
+
+	_, err := r.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(tableName),
+		Item: map[string]types.AttributeValue{
+			"id":        &types.AttributeValueMemberS{Value: key},
+			"firstName": &types.AttributeValueMemberS{Value: name},
+		},
+		ConditionExpression: aws.String("attribute_not_exists(id)"),
+	})
+	if _, exists := errors.AsType[*types.ConditionalCheckFailedException](err); exists {
+		return nil
+	}
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id, updatedName string) error {
+	if !validID(id) {
+		return domain.ErrUserNotFound
+	}
+
 	updateExpression := "SET firstName = :updatedName"
 	expressionAttributeValues := map[string]types.AttributeValue{
 		":updatedName": &types.AttributeValueMemberS{Value: updatedName},
@@ -142,20 +209,23 @@ func (c *connection) Update(ctx context.Context, id, updatedName string) (int64,
 		ReturnValues:              "ALL_NEW",
 	}
 
-	_, err := c.db.UpdateItem(ctx, input)
+	_, err := r.db.UpdateItem(ctx, input)
 	if err != nil {
-		// The conditional check failing means the item does not exist; that is a
-		// no-op (0 rows affected), not a server error.
+		// The conditional check failing means the item does not exist.
 		if _, ok := errors.AsType[*types.ConditionalCheckFailedException](err); ok {
-			return 0, nil
+			return domain.ErrUserNotFound
 		}
-		return 0, err
+		return err
 	}
 
-	return 1, nil
+	return nil
 }
 
-func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	if !validID(id) {
+		return domain.ErrUserNotFound
+	}
+
 	input := &dynamodb.DeleteItemInput{
 		TableName: aws.String(tableName),
 		Key: map[string]types.AttributeValue{
@@ -164,20 +234,24 @@ func (c *connection) Delete(ctx context.Context, id string) (int64, error) {
 		ReturnValues: "ALL_OLD",
 	}
 
-	result, err := c.db.DeleteItem(ctx, input)
+	result, err := r.db.DeleteItem(ctx, input)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	if len(result.Attributes) == 0 {
 		// Nothing was deleted because the item did not exist.
-		return 0, nil
+		return domain.ErrUserNotFound
 	}
 
-	return 1, nil
+	return nil
 }
 
-func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) {
+func (r *Repository) Fetch(ctx context.Context, id string) (domain.User, error) {
+	if !validID(id) {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(tableName),
 		Key: map[string]types.AttributeValue{
@@ -185,7 +259,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 		},
 	}
 
-	result, err := c.db.GetItem(ctx, input)
+	result, err := r.db.GetItem(ctx, input)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -203,7 +277,7 @@ func (c *connection) Fetch(ctx context.Context, id string) (domain.User, error) 
 	return mapDynamodbToUser(user), nil
 }
 
-func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
+func (r *Repository) FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error) {
 	// Self-defense: the service always clamps limit into [1, max]. Guard anyway —
 	// DynamoDB rejects a Scan Limit of 0, so a direct caller passing <= 0 would
 	// get a validation error instead of a page.
@@ -216,14 +290,19 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 		Limit:     aws.Int32(int32(limit)),
 	}
 	if cursor != "" {
-		startKey, err := decodeDynamoCursor(cursor)
-		if err != nil {
-			return domain.Page{}, err
+		// The cursor is the base64 id of the last item on the previous page. An
+		// id we could never have issued is a forged token: 400, not a Scan the
+		// service rejects with a ValidationException (500).
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil || !validID(string(decoded)) {
+			return domain.Page{}, domain.ErrInvalidCursor
 		}
-		input.ExclusiveStartKey = startKey
+		input.ExclusiveStartKey = map[string]types.AttributeValue{
+			"id": &types.AttributeValueMemberS{Value: string(decoded)},
+		}
 	}
 
-	out, err := c.db.Scan(ctx, input)
+	out, err := r.db.Scan(ctx, input)
 	if err != nil {
 		return domain.Page{}, err
 	}
@@ -241,47 +320,9 @@ func (c *connection) FetchAll(ctx context.Context, limit int, cursor string) (do
 	// more rows remain. Note: Scan has no defined order, so this paginates a
 	// complete traversal rather than a sorted sequence.
 	page := domain.Page{Items: users}
-	if len(out.LastEvaluatedKey) > 0 {
-		next, err := encodeDynamoCursor(out.LastEvaluatedKey)
-		if err != nil {
-			return domain.Page{}, err
-		}
-		page.NextCursor = next
+	if last, ok := out.LastEvaluatedKey["id"].(*types.AttributeValueMemberS); ok {
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(last.Value))
 	}
 
 	return page, nil
-}
-
-// encodeDynamoCursor serialises a LastEvaluatedKey into an opaque token. The key
-// is a map[string]types.AttributeValue whose members are a sealed interface, so
-// it can't be JSON-marshalled directly — we unmarshal it into a plain map first,
-// then base64 the JSON.
-func encodeDynamoCursor(key map[string]types.AttributeValue) (string, error) {
-	var plain map[string]any
-	if err := attributevalue.UnmarshalMap(key, &plain); err != nil {
-		return "", err
-	}
-	raw, err := json.Marshal(plain)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
-}
-
-// decodeDynamoCursor reverses encodeDynamoCursor, rebuilding the attribute map
-// used as ExclusiveStartKey. A malformed token is a client error.
-func decodeDynamoCursor(cursor string) (map[string]types.AttributeValue, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return nil, domain.ErrInvalidCursor
-	}
-	var plain map[string]any
-	if err := json.Unmarshal(raw, &plain); err != nil {
-		return nil, domain.ErrInvalidCursor
-	}
-	key, err := attributevalue.MarshalMap(plain)
-	if err != nil {
-		return nil, domain.ErrInvalidCursor
-	}
-	return key, nil
 }

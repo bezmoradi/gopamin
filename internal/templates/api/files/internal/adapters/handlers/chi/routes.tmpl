@@ -1,6 +1,7 @@
 package chi
 
 import (
+	"fmt"
 	"encoding/json"
 
 {{- if .PublishesEvents}}
@@ -25,18 +26,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       chi.NewRouter(),
 		globalPrefix: "/api/v1",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
@@ -60,4 +58,19 @@ func failureLabel(err error) api.ErrorMessageType {
 
 {{- end}}
 	return api.DatabaseOperationFailure
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.Route(fmt.Sprintf("%v/users", router.globalPrefix), func(r chi.Router) {
+		r.Get("/", router.IndexHandler)
+		r.Get("/{id}", router.ShowUserHandler)
+		r.Post("/", router.CreateUserHandler)
+		r.Put("/{id}", router.UpdateUserHandler)
+		r.Delete("/{id}", router.DeleteUserHandler)
+	})
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return chi.URLParam(r, "id")
 }

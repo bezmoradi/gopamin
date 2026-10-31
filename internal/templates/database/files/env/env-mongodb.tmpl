@@ -1,6 +1,8 @@
 # MongoDB
-MONGODB_HOST=localhost
+# The app reads MONGODB_URI and MONGODB_NAME. USERNAME, PASSWORD and PORT configure
+# the compose container; keep the URI in step with them. Add tls=true for a real server.
 MONGODB_NAME=test
 MONGODB_PORT=27017
-MONGODB_USERNAME=john
-MONGODB_PASSWORD=doe
+MONGODB_USERNAME=app
+MONGODB_PASSWORD={{.Secrets.DatabasePassword}}
+MONGODB_URI=mongodb://app:{{.Secrets.DatabasePassword}}@localhost:27017/?authSource=admin

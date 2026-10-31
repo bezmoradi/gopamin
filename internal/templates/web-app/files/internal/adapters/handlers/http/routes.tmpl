@@ -1,7 +1,9 @@
 package http
 
 import (
+	"fmt"
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 )
@@ -13,18 +15,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       http.NewServeMux(),
 		globalPrefix: "/users",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
@@ -33,5 +32,21 @@ func (router router) Register() http.Handler {
 // could describe the datastore. Never write a 500 without going through here.
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
-	http.Error(w, internalFailure, http.StatusInternalServerError)
+	web.RenderError(w, http.StatusInternalServerError, internalFailure)
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.HandleFunc(fmt.Sprintf("GET %v", router.globalPrefix), router.IndexHandler)
+	router.engine.HandleFunc(fmt.Sprintf("GET %v/{id}", router.globalPrefix), router.ShowUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("POST %v", router.globalPrefix), router.CreateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("PUT %v/{id}", router.globalPrefix), router.UpdateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("DELETE %v/{id}", router.globalPrefix), router.DeleteUserHandler)
+
+	router.engine.Handle("GET /assets/", web.Assets())
+}
+
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return r.PathValue("id")
 }

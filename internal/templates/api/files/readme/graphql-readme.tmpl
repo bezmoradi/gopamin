@@ -1,8 +1,10 @@
 ## GraphQL API Guide
 
-This project was created **without a database**, so it uses an in-memory `MockRepository` (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -f graphql -d <database>` for persistence.
+{{if not .Database -}}
+This project was created **without a database**, so it uses an in-memory repository (`internal/adapters/repositories/memory`) (wired in `cmd/main.go`). Data is **not durable** — it resets on restart. Add a database with `gopamin new … -f graphql -d <database>` for persistence.
 
-The GraphQL API is a **single `POST /graphql` endpoint** — there is no GraphiQL in-browser IDE. Send each operation as JSON `{"query": "<operation>"}` (the port is `PORT` in `.env`, default `8080`):
+{{end -}}
+The GraphQL API is a **single `POST /graphql` endpoint** that takes a JSON body — there is no Playground or GraphiQL, and `GET` or form requests are refused. Send each operation as JSON `{"query": "<operation>"}` with `Content-Type: application/json` (the port is `PORT` in `.env`, default `8080`). A document may select at most 10 root fields and 100 fields in total, and introspection is off unless `GRAPHQL_INTROSPECTION=true` in `.env`:
 
 ```text
 curl --location 'http://localhost:8080/graphql' \
@@ -13,13 +15,15 @@ curl --location 'http://localhost:8080/graphql' \
 {{if .Auth}}
 ### Authentication
 
-`POST /graphql` requires a JWT **bearer token** — without one you get `401`. Get a token from `POST /login` (credentials `AUTH_USERNAME` / `AUTH_PASSWORD` in `.env`), then send it as `Authorization: Bearer <JWT>` (as shown above):
+`POST /graphql` requires a JWT **bearer token** — without one you get `401`. Get a token from `POST /login`, then send it as `Authorization: Bearer <JWT>` (as shown above). The username is `AUTH_USERNAME` in `.env`; the password was printed once when the project was generated, and `.env` keeps only its hash (`AUTH_PASSWORD_HASH`). To set a new password, run `make hash-password` and put its output in `.env`.
 
 ```text
 curl --location 'http://localhost:8080/login' --header 'Content-Type: application/json' \
---data '{"username": "admin", "password": "change-me"}'
+--data '{"username": "admin", "password": "<PASSWORD>"}'
 # -> {"token":"<JWT>"}
 ```
+
+The server refuses to start when a `JWT_*`/`AUTH_*` value is missing, too short or a demo value. `/login` allows 5 attempts per username and 20 per client address per minute, then answers `429` with `Retry-After`.
 {{end}}
 ### Operations
 
@@ -27,12 +31,14 @@ curl --location 'http://localhost:8080/login' --header 'Content-Type: applicatio
   `{ users(limit: 20, cursor: "") { items { id name } next_cursor } }`
 - **Fetch one:** `{ user(id: "<USER_ID>") { id name } }`
 - **Create:** `mutation { create(name: "John Doe") }` — returns the new user's id
-- **Update:** `mutation { update(id: "<USER_ID>", name: "Jane Doe") }` — returns the affected row count
-- **Delete:** `mutation { delete(id: "<USER_ID>") }` — returns the affected row count
+- **Update:** `mutation { update(id: "<USER_ID>", name: "Jane Doe") { id name } }` — returns the updated user
+- **Delete:** `mutation { delete(id: "<USER_ID>") }` — returns `true`
+
+A missing id fails both with the error `user not found`.
 {{if .Broker}}
 ### Events
 
-On a create, the service publishes an event to **{{.Broker}}**, and a consumer loop runs alongside the server. See the "Broker workflow" section of `AGENTS.md`.
+Each create, update and delete publishes an event to the **{{.Broker}}** {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} `{{.Slug}}-users`, and a consumer loop runs alongside the server logging each event's type and id. See the "Broker workflow" section of `AGENTS.md` for the event format and delivery guarantees.
 
 **{{.Broker}} runs in a container**: start it with `make docker-up` before `make run`, or the app cannot reach the broker. `make docker-down` stops it (`make docker-down-rm-vol` also drops the volume).
 {{end}}{{if .Observability}}

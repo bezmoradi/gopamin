@@ -2,8 +2,6 @@ package echo
 
 import (
 	"errors"
-	"html/template"
-	"io/fs"
 	"net/http"
 
 	"{{.Name}}/internal/core/user/domain"
@@ -17,7 +15,7 @@ import (
 // names, and query text. Log it if you need it; do not render it.
 const internalFailure = "internal server error"
 
-func (router router) registerUserRoutes() {
+func (router *router) registerUserRoutes() {
 	group := router.engine.Group(router.globalPrefix)
 
 	group.GET("", router.IndexHandler)
@@ -26,14 +24,17 @@ func (router router) registerUserRoutes() {
 	group.PUT("/:id", router.UpdateUserHandler)
 	group.DELETE("/:id", router.DeleteUserHandler)
 
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	router.engine.GET("/assets/*", echo.WrapHandler(
-		http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS))),
-	))
+	router.engine.GET("/assets/*", echo.WrapHandler(web.Assets()))
 
 }
 
-func (router router) CreateUserHandler(c *echo.Context) error {
+func (router *router) CreateUserHandler(c *echo.Context) error {
+	if err := c.Request().ParseForm(); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.String(http.StatusRequestEntityTooLarge, "request body too large")
+		}
+		return c.String(http.StatusBadRequest, "malformed form body")
+	}
 	name := c.FormValue("name")
 	_, err := router.service.Create(c.Request().Context(), name)
 	if domain.IsValidationError(err) {
@@ -47,12 +48,12 @@ func (router router) CreateUserHandler(c *echo.Context) error {
 }
 
 func (router *router) DeleteUserHandler(c *echo.Context) error {
-	rowsAffected, err := router.service.Delete(c.Request().Context(), c.Param("id"))
+	err := router.service.Delete(c.Request().Context(), c.Param("id"))
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.String(http.StatusNotFound, "user not found")
+	}
 	if err != nil {
 		return router.fail(c, "delete user", err)
-	}
-	if rowsAffected == 0 {
-		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }
@@ -64,48 +65,52 @@ func (router *router) IndexHandler(c *echo.Context) error {
 
 	result, err := router.service.Index(c.Request().Context(), 0, cursor)
 	if errors.Is(err, domain.ErrInvalidCursor) {
-		return c.String(http.StatusBadRequest, "invalid pagination cursor")
+		web.RenderError(c.Response(), http.StatusBadRequest, "This page link is not valid. Start again from the first page.")
+		return nil
 	}
 	if err != nil {
 		return router.fail(c, "list users", err)
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/users.html")
-	if err != nil {
-		return router.fail(c, "load page template", err)
+	if err := web.Render(c.Response(), "users.html", result); err != nil {
+		return router.fail(c, "render page", err)
 	}
-
-	return tmpl.Execute(c.Response(), result)
+	return nil
 }
 
 func (router *router) ShowUserHandler(c *echo.Context) error {
 	result, err := router.service.Show(c.Request().Context(), c.Param("id"))
 	if errors.Is(err, domain.ErrUserNotFound) {
-		return c.String(http.StatusNotFound, "user not found")
+		web.RenderError(c.Response(), http.StatusNotFound, "No user has this ID.")
+		return nil
 	}
 	if err != nil {
 		return router.fail(c, "fetch user", err)
 	}
 
-	tmpl, err := template.ParseFS(web.Assets, "assets/user.html")
-	if err != nil {
-		return router.fail(c, "load page template", err)
+	if err := web.Render(c.Response(), "user.html", result); err != nil {
+		return router.fail(c, "render page", err)
 	}
-
-	return tmpl.Execute(c.Response(), result)
+	return nil
 }
 
 func (router *router) UpdateUserHandler(c *echo.Context) error {
+	if err := c.Request().ParseForm(); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.String(http.StatusRequestEntityTooLarge, "request body too large")
+		}
+		return c.String(http.StatusBadRequest, "malformed form body")
+	}
 	name := c.FormValue("name")
-	rowsAffected, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
+	_, err := router.service.Update(c.Request().Context(), c.Param("id"), name)
 	if domain.IsValidationError(err) {
 		return c.String(http.StatusUnprocessableEntity, err.Error())
 	}
+	if errors.Is(err, domain.ErrUserNotFound) {
+		return c.String(http.StatusNotFound, "user not found")
+	}
 	if err != nil {
 		return router.fail(c, "update user", err)
-	}
-	if rowsAffected == 0 {
-		return c.String(http.StatusNotFound, "user not found")
 	}
 	return c.NoContent(http.StatusOK)
 }

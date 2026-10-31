@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
-{{- if .Observability}}
+{{- if and .Observability (ne .Platform "graphql")}}
 	"strings"
 {{- end}}
-	"syscall"
 	"time"
 
 {{- if .OpenAPI}}
@@ -28,18 +26,21 @@ import (
 {{- end}}
 )
 
-func Serve(handlers shared.RouterInterface, logger shared.Logger) {
+// Serve mounts the application handler behind the shared middleware chain, next
+// to the health probes, and runs the server until ctx ends, then drains it. checks
+// are the dependencies /readyz probes. It returns an error if the server can't
+// start or stops unexpectedly.
+func Serve(ctx context.Context, app http.Handler, logger shared.Logger, checks ...health.Check) error {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	logger.Info(fmt.Sprintf("The API is accessible at http://localhost:%s/api/v1/users", port))
 
 {{- if .Observability}}
 	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred
 	// shutdown is registered first so it runs LAST — after the server drains below —
 	// flushing buffered spans/metrics. Fail-open: a setup error is logged, not fatal.
-	otelShutdown, err := observability.Setup(context.Background())
+	otelShutdown, err := observability.Setup(context.Background(), logger)
 	if err != nil {
 		logger.Error("otel setup failed; continuing without telemetry", "error", err)
 	}
@@ -52,76 +53,97 @@ func Serve(handlers shared.RouterInterface, logger shared.Logger) {
 
 {{- if .Auth}}
 	// Auth config, read here like PORT (no config threaded through main). The
-	// JWT_*/AUTH_* values live in .env.
-	authSecret := []byte(os.Getenv("JWT_SECRET"))
-	authIssuer := os.Getenv("JWT_ISSUER")
-	authTTL, err := time.ParseDuration(os.Getenv("JWT_TTL"))
-	if err != nil || authTTL <= 0 {
-		authTTL = 15 * time.Minute
+	// JWT_*/AUTH_* values live in .env; LoadConfig refuses missing, short or demo
+	// values, so a deployment without its secrets stops here instead of serving
+	// with authentication disabled.
+	authConfig, err := auth.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("auth config: %w", err)
 	}
-	authUser := os.Getenv("AUTH_USERNAME")
-	authPass := os.Getenv("AUTH_PASSWORD")
 {{- end}}
 
+	// Browsers may call the app cross-origin only from CORS_ALLOWED_ORIGINS; the
+	// same list is trusted by the cross-origin (CSRF) protection.
+	allowedOrigins := middleware.AllowedOrigins()
+	crossOrigin, err := middleware.CrossOrigin(allowedOrigins)
+	if err != nil {
+		return err
+	}
+
 	// Mount liveness/readiness at the transport layer so they work regardless of
-	// the HTTP framework, then delegate everything else to it.
+	// the HTTP framework, then delegate the application routes to it.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health.Live)
-	mux.HandleFunc("/readyz", health.Ready)
+	mux.HandleFunc("/readyz", health.Ready(logger, checks...))
 {{- if .OpenAPI}}
 	// API docs: the raw spec plus embedded Swagger UI, both self-contained.
 	mux.HandleFunc("/openapi.yaml", api.SpecHandler())
 	mux.Handle("/swagger/", api.SwaggerUIHandler())
 {{- end}}
 {{- if .Auth}}
-	// /login is public and browser-facing, so it rides its own chain (CORS, panic
-	// recovery, request logging) rather than the bare mux — everything under "/" is
-	// then protected by the auth middleware below.
+	// /login is public and browser-facing, so it rides its own chain rather than
+	// the bare mux — the application routes are then protected by the auth
+	// middleware below.
 	mux.Handle("/login", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
-		auth.LoginHandler(authSecret, authTTL, authIssuer, authUser, authPass),
+		auth.LoginHandler(authConfig, logger),
 		middleware.Recover(logger),
 		middleware.RequestLogger(logger),
-		middleware.CORS,
+		middleware.CORS(allowedOrigins),
+		crossOrigin,
+		middleware.MaxBytes(middleware.MaxBodyBytes),
+		middleware.RequireJSON,
 	){{if .Observability}}, "login"){{end}})
 {{- end}}
-	mux.Handle("/", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
-		handlers.Register(),
+	mux.Handle("{{if eq .Platform "graphql"}}/graphql{{else}}/{{end}}", {{if .Observability}}otelhttp.NewHandler({{end}}middleware.Chain(
+		app,
 		middleware.Recover(logger),
 		middleware.RequestLogger(logger),
-		middleware.CORS,
+		middleware.CORS(allowedOrigins),
+		crossOrigin,
+		middleware.MaxBytes(middleware.MaxBodyBytes),
 {{- if .Auth}}
-		auth.Middleware(authSecret, authIssuer),
+		auth.Middleware(authConfig),
+{{- end}}
+{{- if eq .ProjectType "api"}}
+		middleware.RequireJSON,
 {{- end}}
 		middleware.Timeout(10*time.Second),
-	){{if .Observability}}, "http.server", otelhttp.WithSpanNameFormatter(spanName)){{end}})
+	){{if .Observability}}, "http.server"{{if ne .Platform "graphql"}}, otelhttp.WithSpanNameFormatter(spanName){{end}}){{end}})
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%v", port),
-		Handler:      mux,
+		Handler:      middleware.SecurityHeaders(mux),
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+{{- if eq .Platform "graphql"}}
+	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
+{{- else if eq .ProjectType "web-app"}}
+	logger.Info(fmt.Sprintf("The web server is accessible at http://localhost:%s/users", port))
+{{- else}}
+	logger.Info(fmt.Sprintf("The API is accessible at http://localhost:%s/api/v1/users", port))
+{{- end}}
+	// ListenAndServe only returns before Shutdown on a failure, such as the port
+	// being taken.
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
 
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal(err)
-		}
-	}()
-
-	<-ctx.Done()
-	stop()
+	select {
+	case err := <-serveErr:
+		return err
+	case <-ctx.Done():
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed", "error", err)
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+	return nil
 }
-{{- if .Observability}}
+{{- if and .Observability (ne .Platform "graphql")}}
 
 // spanName names each span after its route template. otelhttp otherwise derives
 // the name from the mux pattern this handler is mounted on — "/" — so every
@@ -136,13 +158,17 @@ func spanName(_ string, r *http.Request) string {
 }
 
 func routeTemplate(path string) string {
-	const users = "/api/v1/users"
+	const users = "{{if eq .ProjectType "web-app"}}/users{{else}}/api/v1/users{{end}}"
 
 	switch {
 	case path == users || path == users+"/":
 		return users
 	case strings.HasPrefix(path, users+"/"):
 		return users + "/{id}"
+{{- if eq .ProjectType "web-app"}}
+	case strings.HasPrefix(path, "/assets/"):
+		return "/assets/*"
+{{- end}}
 	default:
 		return "/"
 	}

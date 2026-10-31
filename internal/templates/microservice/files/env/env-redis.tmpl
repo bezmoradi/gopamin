@@ -1,4 +1,7 @@
 # Redis
 REDIS_HOST=localhost
 REDIS_PORT=6379
-REDIS_PASSWORD=doe
+REDIS_PASSWORD={{.Secrets.BrokerPassword}}
+REDIS_CHANNEL={{.Slug}}-users
+# true for a server that requires TLS (most managed Redis); the local container is plain TCP.
+REDIS_TLS=false

@@ -2,6 +2,7 @@ package httprouter
 
 import (
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 
@@ -15,18 +16,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       httprouter.New(),
 		globalPrefix: "/users",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
@@ -35,5 +33,19 @@ func (router router) Register() http.Handler {
 // could describe the datastore. Never write a 500 without going through here.
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
-	http.Error(w, internalFailure, http.StatusInternalServerError)
+	web.RenderError(w, http.StatusInternalServerError, internalFailure)
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix, router.IndexHandler)
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix+"/:id", router.ShowUserHandler)
+	router.engine.HandlerFunc(http.MethodPost, router.globalPrefix, router.CreateUserHandler)
+	router.engine.HandlerFunc(http.MethodPut, router.globalPrefix+"/:id", router.UpdateUserHandler)
+	router.engine.HandlerFunc(http.MethodDelete, router.globalPrefix+"/:id", router.DeleteUserHandler)
+	router.engine.Handler(http.MethodGet, "/assets/*filepath", web.Assets())
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return httprouter.ParamsFromContext(r.Context()).ByName("id")
 }

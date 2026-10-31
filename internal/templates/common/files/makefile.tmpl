@@ -1,5 +1,12 @@
 run:
 	@go run ./cmd/main.go
+{{- if .Auth}}
+
+# hash-password: read a password (input is echoed) and print its AUTH_PASSWORD_HASH
+# value for .env. The demo POST /login compares against this hash.
+hash-password:
+	@go run ./cmd/hashpassword
+{{- end}}
 
 test:
 	@go test -v ./...

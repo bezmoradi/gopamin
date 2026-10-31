@@ -1,0 +1,19 @@
+package domain
+
+// EventKind names what happened to a user.
+type EventKind string
+
+const (
+	UserCreated EventKind = "user.created"
+	UserUpdated EventKind = "user.updated"
+	UserDeleted EventKind = "user.deleted"
+)
+
+// Event is something that happened to a user, published after the write that
+// caused it. User is the user as written; a deletion carries only its ID. The
+// wire format (envelope, version, event id) belongs to the events adapter, not
+// to the core.
+type Event struct {
+	Kind EventKind
+	User User
+}

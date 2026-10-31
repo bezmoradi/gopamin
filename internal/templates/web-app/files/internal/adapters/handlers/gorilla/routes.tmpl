@@ -2,6 +2,7 @@ package gorilla
 
 import (
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 
@@ -15,18 +16,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       mux.NewRouter(),
 		globalPrefix: "/users",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
@@ -35,5 +33,23 @@ func (router router) Register() http.Handler {
 // could describe the datastore. Never write a 500 without going through here.
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
-	http.Error(w, internalFailure, http.StatusInternalServerError)
+	web.RenderError(w, http.StatusInternalServerError, internalFailure)
+}
+
+func (router router) registerUserRoutes() {
+	subrouter := router.engine.PathPrefix(router.globalPrefix).Subrouter()
+
+	subrouter.HandleFunc("", router.IndexHandler).Methods("GET")
+	subrouter.HandleFunc("/{id}", router.ShowUserHandler).Methods("GET")
+	subrouter.HandleFunc("", router.CreateUserHandler).Methods("POST")
+	subrouter.HandleFunc("/{id}", router.UpdateUserHandler).Methods("PUT")
+	subrouter.HandleFunc("/{id}", router.DeleteUserHandler).Methods("DELETE")
+
+	router.engine.PathPrefix("/assets/").Methods(http.MethodGet).Handler(web.Assets())
+}
+
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return mux.Vars(r)["id"]
 }

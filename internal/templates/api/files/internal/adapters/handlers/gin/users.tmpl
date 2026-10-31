@@ -30,7 +30,8 @@ func (router *router) CreateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		c.JSON(status, api.Response{Error: label})
 		return
 	}
 
@@ -50,14 +51,13 @@ func (router *router) CreateUserHandler(c *gin.Context) {
 func (router *router) DeleteUserHandler(c *gin.Context) {
 	id := c.Param("id")
 
-	rowsAffected, err := router.service.Delete(c.Request.Context(), id)
-	if err != nil {
-		router.fail(c, "delete user", err)
+	err := router.service.Delete(c.Request.Context(), id)
+	if errors.Is(err, domain.ErrUserNotFound) {
+		c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 		return
 	}
-
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
+	if err != nil {
+		router.fail(c, "delete user", err)
 		return
 	}
 
@@ -103,23 +103,24 @@ func (router *router) UpdateUserHandler(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
-		c.JSON(http.StatusBadRequest, api.Response{Error: api.FailedToReadRequestBody})
+		status, label := api.DecodeFailure(err)
+		c.JSON(status, api.Response{Error: label})
 		return
 	}
 
-	rowsAffected, err := router.service.Update(c.Request.Context(), c.Param("id"), body.Name)
+	user, err := router.service.Update(c.Request.Context(), c.Param("id"), body.Name)
 	if domain.IsValidationError(err) {
 		c.JSON(http.StatusUnprocessableEntity, api.Response{Message: err.Error(), Error: api.ValidationFailure})
+		return
+	}
+	if errors.Is(err, domain.ErrUserNotFound) {
+		c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
 		return
 	}
 	if err != nil {
 		router.fail(c, "update user", err)
 		return
 	}
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, api.Response{Error: api.NotFoundError})
-		return
-	}
 
-	c.JSON(http.StatusOK, api.Response{Message: "User updated successfully", Data: rowsAffected})
+	c.JSON(http.StatusOK, api.Response{Message: "User updated successfully", Data: api.NewUser(user)})
 }

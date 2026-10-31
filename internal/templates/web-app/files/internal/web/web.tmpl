@@ -1,9 +1,80 @@
+// Package web holds the HTML templates and static files, embedded so the binary
+// is self-contained and deploys without its source tree.
 package web
 
-import "embed"
+import (
+	"bytes"
+	"embed"
+	"html/template"
+	"io/fs"
+	"net/http"
+)
 
-// Assets holds the HTML templates and static files embedded into the binary so
-// the web app is fully self-contained and deploys without its source tree.
-//
-//go:embed assets
-var Assets embed.FS
+//go:embed templates
+var templateFiles embed.FS
+
+//go:embed static
+var staticFiles embed.FS
+
+// pages are the HTML templates, parsed once at startup: a broken template stops
+// the program immediately instead of failing every request that renders it.
+var pages = template.Must(template.ParseFS(templateFiles, "templates/*.html"))
+
+// Render executes the named page template into w with a 200. It renders into a
+// buffer first, so a template error leaves w untouched for the caller's 500.
+func Render(w http.ResponseWriter, name string, data any) error {
+	return RenderStatus(w, http.StatusOK, name, data)
+}
+
+// RenderStatus is Render with an explicit status code.
+func RenderStatus(w http.ResponseWriter, status int, name string, data any) error {
+	var buf bytes.Buffer
+	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+// RenderError writes the error page with status and a message for the visitor.
+// If the page itself fails to render, it falls back to plain text.
+func RenderError(w http.ResponseWriter, status int, message string) {
+	page := struct {
+		Status         int
+		Title, Message string
+	}{status, http.StatusText(status), message}
+	if err := RenderStatus(w, status, "error.html", page); err != nil {
+		http.Error(w, message, status)
+	}
+}
+
+// Assets serves the static files under /assets/. Only the static tree is
+// reachable (the page templates live apart from it), and directories aren't
+// listed.
+func Assets() http.Handler {
+	sub, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		panic(err)
+	}
+	return http.StripPrefix("/assets/", http.FileServer(filesOnly{http.FS(sub)}))
+}
+
+// filesOnly hides directories, so /assets/ answers 404 instead of a listing.
+type filesOnly struct {
+	fs http.FileSystem
+}
+
+func (f filesOnly) Open(name string) (http.File, error) {
+	file, err := f.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		_ = file.Close()
+		return nil, fs.ErrNotExist
+	}
+	return file, nil
+}

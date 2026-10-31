@@ -1,6 +1,8 @@
 
+# docker-up: start the services and wait until each one's healthcheck passes, so
+# `make docker-up && make run` doesn't race a service that is still starting.
 docker-up:
-	@docker compose up -d
+	@docker compose up -d --wait
 
 docker-down:
 	@docker compose down

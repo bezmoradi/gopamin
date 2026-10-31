@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"encoding/json"
 
 {{- if .PublishesEvents}}
@@ -23,18 +24,15 @@ type router struct {
 	logger       shared.Logger
 }
 
-func NewRouter(service ports.UserServiceInterface, logger shared.Logger) shared.RouterInterface {
-	return &router{
+func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Handler {
+	r := &router{
 		engine:       http.NewServeMux(),
 		globalPrefix: "/api/v1",
 		service:      service,
 		logger:       logger,
 	}
-}
-
-func (router router) Register() http.Handler {
-	router.registerUserRoutes()
-	return router.engine
+	r.registerUserRoutes()
+	return r.engine
 }
 
 // fail logs the underlying cause and writes the opaque response the client sees.
@@ -58,4 +56,19 @@ func failureLabel(err error) api.ErrorMessageType {
 
 {{- end}}
 	return api.DatabaseOperationFailure
+}
+
+func (router router) registerUserRoutes() {
+	prefix := router.globalPrefix + "/users"
+
+	router.engine.HandleFunc(fmt.Sprintf("GET %v", prefix), router.IndexHandler)
+	router.engine.HandleFunc(fmt.Sprintf("GET %v/{id}", prefix), router.ShowUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("POST %v", prefix), router.CreateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("PUT %v/{id}", prefix), router.UpdateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("DELETE %v/{id}", prefix), router.DeleteUserHandler)
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return r.PathValue("id")
 }
