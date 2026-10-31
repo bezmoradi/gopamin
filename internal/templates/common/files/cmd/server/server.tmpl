@@ -40,7 +40,7 @@ func Serve(ctx context.Context, app http.Handler, logger shared.Logger, checks .
 	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred
 	// shutdown is registered first so it runs LAST — after the server drains below —
 	// flushing buffered spans/metrics. Fail-open: a setup error is logged, not fatal.
-	otelShutdown, err := observability.Setup(context.Background())
+	otelShutdown, err := observability.Setup(context.Background(), logger)
 	if err != nil {
 		logger.Error("otel setup failed; continuing without telemetry", "error", err)
 	}

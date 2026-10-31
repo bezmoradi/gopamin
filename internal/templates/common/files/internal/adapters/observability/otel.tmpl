@@ -8,7 +8,12 @@ package observability
 import (
 	"context"
 	"errors"
+	"sync"
+	"time"
 
+	"{{.Name}}/internal/core/shared"
+
+	"github.com/google/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -24,6 +29,9 @@ import (
 // attribute. Bump it on release (there is no standard OTEL_* env var for it).
 const serviceVersion = "0.1.0"
 
+// errorLogInterval is the most often an OTel-internal error is logged.
+const errorLogInterval = time.Minute
+
 // noop is returned as the shutdown func on any setup failure so the caller's
 // deferred shutdown(ctx) never nil-panics — telemetry fails open, not the app.
 func noop(context.Context) error { return nil }
@@ -33,15 +41,19 @@ func noop(context.Context) error { return nil }
 // are all read natively by the SDK/exporters). It ALWAYS returns a non-nil shutdown
 // func; on error the returned shutdown is a no-op and the caller should log and
 // continue. Call the returned shutdown after draining traffic to flush buffers.
-func Setup(ctx context.Context) (func(context.Context) error, error) {
-	// Route SDK-internal errors (e.g. exporter failures while the collector is
-	// unreachable) somewhere quiet, so a down collector doesn't spam stderr every
-	// export interval. Fail-open must also mean fail-quiet.
-	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {}))
+func Setup(ctx context.Context, logger shared.Logger) (func(context.Context) error, error) {
+	// SDK-internal errors (an unreachable collector fails every export) go to the
+	// app's log, at most once a minute, so telemetry trouble is visible without
+	// flooding the log.
+	otel.SetErrorHandler(&errorLogger{logger: logger})
 
+	// service.instance.id tells replicas apart: without it, two instances report
+	// the same series and a backend such as Prometheus sees counters reset. It is
+	// listed before WithFromEnv, so OTEL_RESOURCE_ATTRIBUTES can override it.
 	// service.name and any extra attributes come from OTEL_SERVICE_NAME /
-	// OTEL_RESOURCE_ATTRIBUTES via WithFromEnv; service.version is stamped here.
+	// OTEL_RESOURCE_ATTRIBUTES; service.version is stamped here.
 	res, err := resource.New(ctx,
+		resource.WithAttributes(attribute.String("service.instance.id", uuid.NewString())),
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
 		resource.WithAttributes(attribute.String("service.version", serviceVersion)),
@@ -86,4 +98,26 @@ func Setup(ctx context.Context) (func(context.Context) error, error) {
 	return func(ctx context.Context) error {
 		return errors.Join(tracerProvider.Shutdown(ctx), meterProvider.Shutdown(ctx))
 	}, nil
+}
+
+// errorLogger logs OTel-internal errors at most once per errorLogInterval, with
+// the number it dropped since the last line.
+type errorLogger struct {
+	logger     shared.Logger
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+func (e *errorLogger) Handle(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if time.Since(e.last) < errorLogInterval {
+		e.suppressed++
+		return
+	}
+	e.logger.Error("opentelemetry error", "error", err, "suppressed", e.suppressed)
+	e.last = time.Now()
+	e.suppressed = 0
 }

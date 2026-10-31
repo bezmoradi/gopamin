@@ -129,7 +129,8 @@ deps:
     anyVendorDeps: true          # godotenv
 {{- if .Observability}}
   observability:
-    anyVendorDeps: true          # OpenTelemetry SDK + OTLP exporters (core stays pure)
+    mayDependOn: [shared]        # logs OTel-internal errors through the logger port
+    anyVendorDeps: true          # OpenTelemetry SDK + OTLP exporters, google/uuid (core stays pure)
 {{- end}}
 {{- if $hasWeb}}
   # web: embedded HTML/CSS assets (stdlib `embed` only). Depends on nothing — omitted.

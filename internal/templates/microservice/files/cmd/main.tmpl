@@ -64,7 +64,7 @@ func run(logger shared.Logger) error {
 	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred flush
 	// runs after Consume returns, so in-flight message spans are exported.
 	// Fail-open: a setup error is logged, not fatal.
-	otelShutdown, err := observability.Setup(context.Background())
+	otelShutdown, err := observability.Setup(context.Background(), logger)
 	if err != nil {
 		logger.Error("otel setup failed; continuing without telemetry", "error", err)
 	}
