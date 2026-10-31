@@ -91,6 +91,7 @@ func buildCommon(g *generator) {
 	}
 	if p.HasAuth() {
 		g.file("auth")
+		g.file("hash-password-cmd")
 		g.need("github.com/golang-jwt/jwt/v5")
 	}
 	if p.HasOpenAPI() {

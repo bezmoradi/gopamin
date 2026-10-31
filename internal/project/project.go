@@ -33,6 +33,16 @@ type Project struct {
 	// with -s (REST api only); when set, templates emit a templated openapi.yaml
 	// plus embedded Swagger UI served at /swagger.
 	OpenAPI string
+	// Secrets are random per-project values the scaffolder generates and the
+	// templates write into .env, so no project ships a known default credential.
+	Secrets Secrets
+}
+
+// Secrets holds the generated values. Only what belongs in .env lives here: the
+// demo login password itself is printed once by the scaffolder and never stored.
+type Secrets struct {
+	JWTSecret        string
+	AuthPasswordHash string
 }
 
 // containerizedDatabases run as a service in docker-compose.yml. sqlite and

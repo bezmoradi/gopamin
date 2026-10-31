@@ -36,6 +36,9 @@ cmd/
 {{- if $hasHTTP}}
   main.go  # entry point: constructs adapters, injects them, starts the server
   server/  # HTTP server bootstrap
+{{- if $hasAuth}}
+  hashpassword/  # prints AUTH_PASSWORD_HASH for a new demo password (make hash-password)
+{{- end}}
 {{- else}}
   main.go  # entry point: wires adapters and runs the {{if $isWorker}}worker{{else}}program{{end}}
 {{- end}}
@@ -171,10 +174,10 @@ Two things to know when writing a `while next_cursor != ""` client:
 ```bash
 # create, then page (server on :8080 by default — see PORT)
 {{- if $hasAuth}}
-# every /api/v1/* route is behind the bearer token, so mint one first
-# (AUTH_USERNAME/AUTH_PASSWORD come from .env); without it every call below is 401
+# every /api/v1/* route is behind the bearer token, so mint one first (the password
+# was printed at generation; `make hash-password` sets a new one); without it every call below is 401
 TOKEN=$(curl -s -XPOST localhost:8080/login -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"change-me"}' | jq -r .token)
+  -d '{"username":"admin","password":"<PASSWORD>"}' | jq -r .token)
 curl -s -XPOST localhost:8080/api/v1/users -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"alice"}'
 #   -> 201 {"message":"Created user successfully","data":"<id>"}
 curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8080/api/v1/users?limit=2'
@@ -213,7 +216,7 @@ Single endpoint: `POST /graphql` (GraphiQL is disabled). Schema and resolvers li
 {{- if $hasAuth}}
 # /graphql is behind the bearer token, so mint one first; without it every call is 401
 TOKEN=$(curl -s -XPOST localhost:8080/login -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"change-me"}' | jq -r .token)
+  -d '{"username":"admin","password":"<PASSWORD>"}' | jq -r .token)
 curl -s -XPOST localhost:8080/graphql -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"query":"mutation { create(name: \"alice\") }"}'
 # query a page
@@ -299,13 +302,16 @@ This project exports **traces and metrics** over OTLP/gRPC to a collector. The s
 
 Every application route requires a bearer token; a demo `POST /login` issues one. The logic lives in `internal/adapters/handlers/auth` (the only package that imports the JWT library — the core stays free of it; the authenticated subject travels in `context.Context`, readable via `auth.SubjectFrom(ctx)`).
 
-- **Flow:** `POST /login` with `{"username","password"}` (the demo `AUTH_USERNAME`/`AUTH_PASSWORD` from `.env`) returns `{"token":"…"}`; send it as `Authorization: Bearer <token>` on every other route. Missing/invalid/expired → `401`.
-- **Config** is `JWT_*`/`AUTH_*` in `.env`, read in `cmd/server`. **HS256** with an env secret; the algorithm is **pinned** (`WithValidMethods`) so `alg:none` and RS256→HS256 confusion are rejected.
+- **Flow:** `POST /login` with `{"username","password"}` returns `{"token":"…"}`; send it as `Authorization: Bearer <token>` (scheme case-insensitive) on every other route. Missing/invalid/expired → `401` with a `WWW-Authenticate: Bearer` challenge.
+- **Config** is `JWT_*`/`AUTH_*` in `.env`, read and validated by `auth.LoadConfig` in `cmd/server`. The server **refuses to start** when `JWT_SECRET` is missing, shorter than 32 bytes or the old placeholder, when `JWT_ISSUER`, `JWT_AUDIENCE` or `AUTH_USERNAME` is missing, when `AUTH_PASSWORD_HASH` is missing, malformed or the hash of the old demo password, or when the retired plaintext `AUTH_PASSWORD` is still set. gopamin wrote a random secret and password hash at generation and printed the password once; `make hash-password` (`cmd/hashpassword`) prints the hash for a new one.
+- **Tokens:** **HS256**, algorithm **pinned** (`WithValidMethods`) so `alg:none` and RS256→HS256 confusion are rejected; `iss` and `aud` are issued and checked (`JWT_ISSUER`, `JWT_AUDIENCE`), so another service that shares the secret but not both names can't mint accepted tokens.
+- **Password:** `AUTH_PASSWORD_HASH` is PBKDF2-HMAC-SHA256 with 600,000 iterations (standard library `crypto/pbkdf2`). The password is checked even for an unknown username, so timing doesn't reveal which usernames exist.
+- **Login throttling:** `/login` allows 5 attempts per username and 20 per client address in each one-minute window, then answers `429` with `Retry-After`; a success clears the username's counter. Every attempt is logged as `auth.login.success`, `auth.login.failure` or `auth.login.throttled`, with the client address and username. Limits of this in-memory limiter: it is **per instance** (N replicas allow N times the attempts); behind a reverse proxy every client shares the proxy's address, so derive the client from the proxy's forwarding header only once you trust that proxy; anyone can **lock out a known username** for a minute by spending its 5 attempts; it tracks at most 10,000 keys and, once full of live windows, refuses new keys until one expires. Put a shared limiter (gateway or Redis) in front for production.
 - **All-or-nothing:** the auth middleware wraps the whole framework handler, so **every** app route is protected; the only public endpoints are `/healthz`, `/readyz`, and `/login`. For mixed public/protected app routes, add per-framework middleware (echo groups, chi sub-routers, …).
 {{- if $isGraphql}}
 - **GraphQL note:** `/graphql` is fully behind the bearer token — send it in `Authorization`. Introspection and the Playground therefore require a token too (disabling public introspection is a normal prod-hardening step); expose public queries via per-framework middleware if you need them.
 {{- end}}
-- **Productionize before shipping:** the loud `JWT_SECRET` placeholder must become a strong (≥32-byte) secret from a secret store, rotated; and the demo env-credential check in `LoginHandler` must be replaced with a **real user store + password hash** (bcrypt/argon2). Serve over TLS only (a bearer token is a password). Not yet included: refresh tokens, revocation, and role/scope authorization.
+- **Productionize before shipping:** load `JWT_SECRET` from a secret store and rotate it; replace the single env-configured user in `LoginHandler` with a **real user store**. Serve over TLS only (a bearer token is a password). Not yet included: refresh tokens, revocation, MFA, and role/scope authorization.
 {{- end}}
 {{- if $hasBroker}}
 
@@ -370,7 +376,7 @@ Configuration is loaded from `.env` at the project root (via `godotenv`). Real s
 {{else if eq .Database "dynamodb"}}- `{{.Database}}` endpoint, region, and credentials. See `.env` for the exact keys.
 {{else}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
 {{end}}{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
-{{end}}{{if .Auth}}- `JWT_SECRET`, `JWT_TTL`, `JWT_ISSUER`, `AUTH_USERNAME`, `AUTH_PASSWORD` — JWT signing + demo login credentials (see the Authentication section).
+{{end}}{{if .Auth}}- `JWT_SECRET`, `JWT_TTL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` — JWT signing + demo login (see the Authentication section).
 {{end}}{{if .Observability}}- `OTEL_*` — OpenTelemetry exporter endpoint, sampler, and resource attributes (see the Observability section).
 {{end}}See `.env` for the full, authoritative list of keys this project reads.
 

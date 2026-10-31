@@ -63,6 +63,9 @@ components:
   handlers:     { in: internal/adapters/handlers/* }
   cmd-server:   { in: cmd/server }
 {{- end}}
+{{- if .Auth}}
+  cmd-hashpassword: { in: cmd/hashpassword }
+{{- end}}
 {{- if $hasApiResponse}}
   api-response: { in: internal/adapters/api }
 {{- end}}
@@ -135,4 +138,9 @@ deps:
   cmd-server:
     mayDependOn: [shared, user-domain, user-ports, user-services, repositories, loggers, configs, tools, handlers{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}{{if .Observability}}, observability{{end}}]
     anyVendorDeps: true
+{{- end}}
+{{- if .Auth}}
+  # A second, tiny composition root: prints AUTH_PASSWORD_HASH (make hash-password).
+  cmd-hashpassword:
+    mayDependOn: [handlers]
 {{- end}}

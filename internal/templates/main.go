@@ -75,6 +75,7 @@ var registry = map[string]entry{
 	"tools-test":                {"common/files/tools/tools_test.tmpl", "tools/tools_test.go"},
 	"http-main":                 {"common/files/cmd/http-main.tmpl", "cmd/main.go"},
 	"http-server":               {"common/files/cmd/server/server.tmpl", "cmd/server/server.go"},
+	"hash-password-cmd":         {"common/files/cmd/hashpassword/main.tmpl", "cmd/hashpassword/main.go"},
 
 	"hello-world-main":           {"hello-world/files/cmd/main.tmpl", "cmd/main.go"},
 	"hello-world-readme-with-db": {"hello-world/files/readme/readme-with-db.tmpl", "README.md"},

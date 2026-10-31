@@ -48,6 +48,21 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		OpenAPI:       openapi,
 	}
 
+	// -a jwt: a random signing secret and demo password, so no two projects share
+	// one and none ships a known default. Only the password's hash is written.
+	var demoPassword string
+	if p.HasAuth() {
+		demoPassword = randomToken(16)
+		hash, err := hashPassword(demoPassword)
+		if err != nil {
+			fmt.Printf("Error generating project: %v\n", err)
+			_ = os.RemoveAll(projectPath)
+			os.Exit(1)
+		}
+		p.Secrets.JWTSecret = randomToken(32)
+		p.Secrets.AuthPasswordHash = hash
+	}
+
 	if err := generate(&p); err != nil {
 		fmt.Printf("Error generating project: %v\n", err)
 		_ = os.RemoveAll(projectPath)
@@ -64,6 +79,10 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 	}
 
 	fmt.Printf("%v "+BUILD_SUCCESS_MESSAGE+"\n", p.Name)
+	if demoPassword != "" {
+		color.Cyan("Demo login for POST /login: username \"admin\", password %q.", demoPassword)
+		color.Cyan("This is the only time the password is shown; .env keeps only its hash. Run `make hash-password` to set a new one.")
+	}
 }
 
 // generate writes every file for p, then initializes git and the Go module and

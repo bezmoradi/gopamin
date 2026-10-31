@@ -1,10 +1,13 @@
-# Auth (JWT) — read by cmd/server. Every application route requires a bearer token.
-# JWT_SECRET signs/verifies tokens (HS256). golang-jwt enforces no minimum length,
-# so use a strong secret (>= 32 random bytes) and rotate it from a secret store in
-# production. This placeholder is deliberately loud so it is never shipped as-is.
-JWT_SECRET=change-me-before-prod-use-a-32-byte-random-secret
+# Auth (JWT), read by cmd/server. Every application route requires a bearer token,
+# and the server refuses to start if a value below is missing, short or a demo value.
+# JWT_SECRET signs and verifies tokens (HS256, at least 32 bytes). gopamin generated
+# a random one for this project; in production load it from a secret store.
+JWT_SECRET={{.Secrets.JWTSecret}}
 JWT_TTL=15m
 JWT_ISSUER={{.Name}}
-# Demo login credentials (POST /login) — placeholder for a real user store.
+JWT_AUDIENCE={{.Name}}
+# Demo login (POST /login), a placeholder for a real user store. The password was
+# printed once when the project was generated; only its hash is kept here. Set a
+# new one with `make hash-password`.
 AUTH_USERNAME=admin
-AUTH_PASSWORD=change-me
+AUTH_PASSWORD_HASH={{.Secrets.AuthPasswordHash}}

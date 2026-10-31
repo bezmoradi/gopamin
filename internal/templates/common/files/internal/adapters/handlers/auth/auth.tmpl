@@ -6,11 +6,24 @@ package auth
 
 import (
 	"context"
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"{{.Name}}/internal/core/shared"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -18,6 +31,72 @@ import (
 // signingMethod is pinned so the verifier never trusts the token's own "alg"
 // header — this is what defeats the alg:none and RS256->HS256 confusion attacks.
 const signingMethod = "HS256"
+
+// minSecretLen is the shortest JWT_SECRET accepted: 32 bytes, the HS256 key size.
+const minSecretLen = 32
+
+// The demo values older versions of this project shipped in .env. A deployment
+// still carrying them refuses to start.
+const (
+	placeholderSecret   = "change-me-before-prod-use-a-32-byte-random-secret"
+	placeholderPassword = "change-me"
+)
+
+// Config is the validated JWT_*/AUTH_* configuration.
+type Config struct {
+	secret       []byte
+	issuer       string
+	audience     string
+	ttl          time.Duration
+	username     string
+	passwordHash passwordHash
+}
+
+// LoadConfig reads JWT_* and AUTH_* from the environment and refuses missing,
+// short or demo values, naming the variable at fault. cmd/server exits on the
+// error, so a deployment without its secrets fails at startup instead of serving
+// with authentication silently disabled.
+func LoadConfig() (Config, error) {
+	cfg := Config{
+		secret:   []byte(os.Getenv("JWT_SECRET")),
+		issuer:   os.Getenv("JWT_ISSUER"),
+		audience: os.Getenv("JWT_AUDIENCE"),
+		username: os.Getenv("AUTH_USERNAME"),
+		ttl:      15 * time.Minute,
+	}
+	switch {
+	case len(cfg.secret) == 0:
+		return Config{}, errors.New("JWT_SECRET is not set")
+	case string(cfg.secret) == placeholderSecret:
+		return Config{}, errors.New("JWT_SECRET is the documented placeholder; generate a random one (e.g. openssl rand -base64 32)")
+	case len(cfg.secret) < minSecretLen:
+		return Config{}, fmt.Errorf("JWT_SECRET must be at least %d bytes", minSecretLen)
+	case cfg.issuer == "":
+		return Config{}, errors.New("JWT_ISSUER is not set")
+	case cfg.audience == "":
+		return Config{}, errors.New("JWT_AUDIENCE is not set")
+	case cfg.username == "":
+		return Config{}, errors.New("AUTH_USERNAME is not set")
+	case os.Getenv("AUTH_PASSWORD") != "":
+		return Config{}, errors.New("AUTH_PASSWORD (plaintext) is no longer read; remove it and set AUTH_PASSWORD_HASH (make hash-password)")
+	}
+	if raw := os.Getenv("JWT_TTL"); raw != "" {
+		ttl, err := time.ParseDuration(raw)
+		if err != nil || ttl <= 0 {
+			return Config{}, fmt.Errorf("JWT_TTL %q is not a positive duration", raw)
+		}
+		cfg.ttl = ttl
+	}
+	hash, err := parsePasswordHash(os.Getenv("AUTH_PASSWORD_HASH"))
+	if err != nil {
+		return Config{}, fmt.Errorf("AUTH_PASSWORD_HASH: %w (make hash-password prints a valid one)", err)
+	}
+	if hash.matches(placeholderPassword) {
+		return Config{}, errors.New("AUTH_PASSWORD_HASH is the hash of the old demo password; set a new one with make hash-password")
+	}
+	cfg.passwordHash = hash
+	return cfg, nil
+}
 
 type ctxKey int
 
@@ -30,23 +109,41 @@ func SubjectFrom(ctx context.Context) (string, bool) {
 	return subject, ok
 }
 
-func writeUnauthorized(w http.ResponseWriter) {
+// writeUnauthorized answers 401 with the RFC 6750 challenge. The body is opaque on
+// purpose: never reveal WHY (expired vs bad signature vs wrong issuer).
+func writeUnauthorized(w http.ResponseWriter, challenge string) {
+	if challenge != "" {
+		w.Header().Set("WWW-Authenticate", challenge)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	// Opaque on purpose: never reveal WHY (expired vs bad signature vs wrong issuer).
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 }
 
-// Middleware validates the "Authorization: Bearer <jwt>" header on every request,
-// injects the token subject into the request context, and returns 401 on any
-// failure. The algorithm is pinned via WithValidMethods (the sufficient fix); the
-// in-keyFunc method assertion is defense-in-depth.
-func Middleware(secret []byte, issuer string) func(http.Handler) http.Handler {
+// bearerToken extracts the token from "Authorization: Bearer <token>". The scheme
+// is case-insensitive and surrounding spaces are ignored (RFC 9110 §11.1).
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	token = strings.TrimSpace(token)
+	return token, token != ""
+}
+
+// Middleware validates the bearer token on every request, injects the token
+// subject into the request context, and returns 401 on any failure. The algorithm
+// is pinned via WithValidMethods (the sufficient fix); the in-keyFunc method
+// assertion is defense-in-depth. Issuer and audience must both match, so another
+// service sharing the secret can't mint tokens this one accepts unless it also
+// shares both names.
+func Middleware(cfg Config) func(http.Handler) http.Handler {
+	realm := fmt.Sprintf("Bearer realm=%q", cfg.audience)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if !ok || raw == "" {
-				writeUnauthorized(w)
+			raw, ok := bearerToken(r)
+			if !ok {
+				writeUnauthorized(w, realm)
 				return
 			}
 
@@ -55,14 +152,15 @@ func Middleware(secret []byte, issuer string) func(http.Handler) http.Handler {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, jwt.ErrTokenSignatureInvalid
 				}
-				return secret, nil
+				return cfg.secret, nil
 			},
 				jwt.WithValidMethods([]string{signingMethod}),
 				jwt.WithExpirationRequired(),
-				jwt.WithIssuer(issuer),
+				jwt.WithIssuer(cfg.issuer),
+				jwt.WithAudience(cfg.audience),
 			)
 			if err != nil {
-				writeUnauthorized(w)
+				writeUnauthorized(w, realm+`, error="invalid_token"`)
 				return
 			}
 
@@ -72,14 +170,34 @@ func Middleware(secret []byte, issuer string) func(http.Handler) http.Handler {
 	}
 }
 
-// LoginHandler issues a short-lived access token when the posted credentials match
-// the configured demo credentials. IMPORTANT: this validates against a single
-// env-configured user as a placeholder — replace it with a real user store and a
-// password hash (bcrypt/argon2) before production.
-func LoginHandler(secret []byte, ttl time.Duration, issuer, wantUser, wantPass string) http.HandlerFunc {
+// Login attempt limits. Every attempt counts, successful or not, and a success
+// clears that username's counter. See AGENTS.md for what these limits do and
+// don't protect against (per-instance memory, shared proxy addresses, lockout).
+const (
+	loginWindow     = time.Minute
+	loginsPerUser   = 5
+	loginsPerClient = 20
+	maxTrackedKeys  = 10000
+)
+
+// LoginHandler issues a short-lived access token when the posted credentials
+// match the configured demo user. IMPORTANT: a single env-configured user is a
+// placeholder — replace it with a real user store before production.
+func LoginHandler(cfg Config, logger shared.Logger) http.HandlerFunc {
+	perUser := newLimiter(loginsPerUser, loginWindow, maxTrackedKeys)
+	perClient := newLimiter(loginsPerClient, loginWindow, maxTrackedKeys)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		client := clientIP(r)
+		if ok, wait := perClient.allow(client, time.Now()); !ok {
+			logger.Warn("auth.login.throttled", "client", client, "limit", "client")
+			writeTooManyRequests(w, wait)
 			return
 		}
 
@@ -87,33 +205,180 @@ func LoginHandler(secret []byte, ttl time.Duration, issuer, wantUser, wantPass s
 			Username string `json:"username"`
 			Password string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeUnauthorized(w)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
+			logger.Warn("auth.login.failure", "client", client, "reason", "malformed request")
+			writeUnauthorized(w, "")
 			return
 		}
 
-		// Constant-time compares for password-timing hygiene.
-		userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(wantUser)) == 1
-		passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(wantPass)) == 1
-		if !userOK || !passOK {
-			writeUnauthorized(w)
+		if ok, wait := perUser.allow(body.Username, time.Now()); !ok {
+			logger.Warn("auth.login.throttled", "client", client, "username", body.Username, "limit", "username")
+			writeTooManyRequests(w, wait)
 			return
 		}
+
+		// The password is always checked, even for an unknown username, so the
+		// response time doesn't reveal which usernames exist.
+		passOK := cfg.passwordHash.matches(body.Password)
+		userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.username)) == 1
+		if !userOK || !passOK {
+			logger.Warn("auth.login.failure", "client", client, "username", body.Username, "reason", "bad credentials")
+			writeUnauthorized(w, "")
+			return
+		}
+		perUser.forget(body.Username)
 
 		now := time.Now()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 			Subject:   body.Username,
-			Issuer:    issuer,
+			Issuer:    cfg.issuer,
+			Audience:  jwt.ClaimStrings{cfg.audience},
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(cfg.ttl)),
 		})
-		signed, err := token.SignedString(secret)
+		signed, err := token.SignedString(cfg.secret)
 		if err != nil {
+			logger.Error("auth.login.sign failed", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
+		logger.Info("auth.login.success", "client", client, "username", body.Username)
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]string{"token": signed})
 	}
+}
+
+func writeTooManyRequests(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "too many login attempts"})
+}
+
+// clientIP is the peer address of the connection. Behind a reverse proxy that is
+// the proxy, so every client shares one limit; derive it from the proxy's
+// forwarding header only once that header is known to be set by a proxy you trust.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// limiter allows at most limit attempts per key in each fixed window. It is in
+// memory and per instance. It tracks at most maxKeys keys: when full, expired
+// windows are dropped, and if every window is still live, new keys are refused
+// until one expires (fail closed rather than grow without bound).
+type limiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	maxKeys int
+	windows map[string]*window
+}
+
+type window struct {
+	start time.Time
+	count int
+}
+
+func newLimiter(limit int, period time.Duration, maxKeys int) *limiter {
+	return &limiter{limit: limit, window: period, maxKeys: maxKeys, windows: make(map[string]*window)}
+}
+
+// allow records an attempt for key and reports whether it is within the limit;
+// when it isn't, it also returns how long until the key's window resets.
+func (l *limiter) allow(key string, now time.Time) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	w, ok := l.windows[key]
+	if ok && now.Sub(w.start) < l.window {
+		w.count++
+		if w.count > l.limit {
+			return false, l.window - now.Sub(w.start)
+		}
+		return true, 0
+	}
+	if !ok && len(l.windows) >= l.maxKeys {
+		for k, old := range l.windows {
+			if now.Sub(old.start) >= l.window {
+				delete(l.windows, k)
+			}
+		}
+		if len(l.windows) >= l.maxKeys {
+			return false, l.window
+		}
+	}
+	l.windows[key] = &window{start: now, count: 1}
+	return true, 0
+}
+
+func (l *limiter) forget(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.windows, key)
+}
+
+// Password hashing: PBKDF2-HMAC-SHA256 from the standard library, encoded as
+// "pbkdf2-sha256:<iterations>:<salt>:<key>" (base64url, no padding). The
+// separators are colons so the value needs no quoting in .env or the Makefile.
+const (
+	hashScheme     = "pbkdf2-sha256"
+	hashIterations = 600000 // OWASP's recommendation for PBKDF2-HMAC-SHA256
+	hashSaltLen    = 16
+	hashKeyLen     = 32
+)
+
+var b64 = base64.RawURLEncoding
+
+// HashPassword returns the AUTH_PASSWORD_HASH value for password. `make
+// hash-password` runs it via cmd/hashpassword.
+func HashPassword(password string) (string, error) {
+	salt := make([]byte, hashSaltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	key, err := pbkdf2.Key(sha256.New, password, salt, hashIterations, hashKeyLen)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%d:%s:%s", hashScheme, hashIterations, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
+}
+
+type passwordHash struct {
+	iterations int
+	salt       []byte
+	key        []byte
+}
+
+func parsePasswordHash(encoded string) (passwordHash, error) {
+	if encoded == "" {
+		return passwordHash{}, errors.New("not set")
+	}
+	parts := strings.Split(encoded, ":")
+	if len(parts) != 4 || parts[0] != hashScheme {
+		return passwordHash{}, fmt.Errorf("not a %s hash", hashScheme)
+	}
+	iterations, err := strconv.Atoi(parts[1])
+	if err != nil || iterations < hashIterations {
+		return passwordHash{}, fmt.Errorf("needs at least %d iterations", hashIterations)
+	}
+	salt, err := b64.DecodeString(parts[2])
+	if err != nil || len(salt) < hashSaltLen {
+		return passwordHash{}, errors.New("bad salt")
+	}
+	key, err := b64.DecodeString(parts[3])
+	if err != nil || len(key) != hashKeyLen {
+		return passwordHash{}, errors.New("bad key")
+	}
+	return passwordHash{iterations: iterations, salt: salt, key: key}, nil
+}
+
+func (h passwordHash) matches(password string) bool {
+	key, err := pbkdf2.Key(sha256.New, password, h.salt, h.iterations, len(h.key))
+	return err == nil && subtle.ConstantTimeCompare(key, h.key) == 1
 }

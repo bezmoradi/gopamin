@@ -15,13 +15,15 @@ curl --location 'http://localhost:8080/graphql' \
 {{if .Auth}}
 ### Authentication
 
-`POST /graphql` requires a JWT **bearer token** — without one you get `401`. Get a token from `POST /login` (credentials `AUTH_USERNAME` / `AUTH_PASSWORD` in `.env`), then send it as `Authorization: Bearer <JWT>` (as shown above):
+`POST /graphql` requires a JWT **bearer token** — without one you get `401`. Get a token from `POST /login`, then send it as `Authorization: Bearer <JWT>` (as shown above). The username is `AUTH_USERNAME` in `.env`; the password was printed once when the project was generated, and `.env` keeps only its hash (`AUTH_PASSWORD_HASH`). To set a new password, run `make hash-password` and put its output in `.env`.
 
 ```text
 curl --location 'http://localhost:8080/login' --header 'Content-Type: application/json' \
---data '{"username": "admin", "password": "change-me"}'
+--data '{"username": "admin", "password": "<PASSWORD>"}'
 # -> {"token":"<JWT>"}
 ```
+
+The server refuses to start when a `JWT_*`/`AUTH_*` value is missing, too short or a demo value. `/login` allows 5 attempts per username and 20 per client address per minute, then answers `429` with `Retry-After`.
 {{end}}
 ### Operations
 
