@@ -1,6 +1,7 @@
 package chi
 
 import (
+	"fmt"
 	"encoding/json"
 
 {{- if .PublishesEvents}}
@@ -57,4 +58,19 @@ func failureLabel(err error) api.ErrorMessageType {
 
 {{- end}}
 	return api.DatabaseOperationFailure
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.Route(fmt.Sprintf("%v/users", router.globalPrefix), func(r chi.Router) {
+		r.Get("/", router.IndexHandler)
+		r.Get("/{id}", router.ShowUserHandler)
+		r.Post("/", router.CreateUserHandler)
+		r.Put("/{id}", router.UpdateUserHandler)
+		r.Delete("/{id}", router.DeleteUserHandler)
+	})
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return chi.URLParam(r, "id")
 }

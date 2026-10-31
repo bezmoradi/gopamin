@@ -1,7 +1,9 @@
 package httprouter
 
 import (
+	"io/fs"
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 
@@ -33,4 +35,19 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
 	http.Error(w, internalFailure, http.StatusInternalServerError)
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix, router.IndexHandler)
+	router.engine.HandlerFunc(http.MethodGet, router.globalPrefix+"/:id", router.ShowUserHandler)
+	router.engine.HandlerFunc(http.MethodPost, router.globalPrefix, router.CreateUserHandler)
+	router.engine.HandlerFunc(http.MethodPut, router.globalPrefix+"/:id", router.UpdateUserHandler)
+	router.engine.HandlerFunc(http.MethodDelete, router.globalPrefix+"/:id", router.DeleteUserHandler)
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	router.engine.ServeFiles("/assets/*filepath", http.FS(assetsFS))
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return httprouter.ParamsFromContext(r.Context()).ByName("id")
 }

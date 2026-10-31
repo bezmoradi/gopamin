@@ -58,3 +58,18 @@ func failureLabel(err error) api.ErrorMessageType {
 {{- end}}
 	return api.DatabaseOperationFailure
 }
+
+func (router router) registerUserRoutes() {
+	prefix := router.globalPrefix + "/users"
+
+	router.engine.HandlerFunc(http.MethodGet, prefix, router.IndexHandler)
+	router.engine.HandlerFunc(http.MethodGet, prefix+"/:id", router.ShowUserHandler)
+	router.engine.HandlerFunc(http.MethodPost, prefix, router.CreateUserHandler)
+	router.engine.HandlerFunc(http.MethodPut, prefix+"/:id", router.UpdateUserHandler)
+	router.engine.HandlerFunc(http.MethodDelete, prefix+"/:id", router.DeleteUserHandler)
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return httprouter.ParamsFromContext(r.Context()).ByName("id")
+}

@@ -1,7 +1,10 @@
 package http
 
 import (
+	"fmt"
+	"io/fs"
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 )
@@ -31,4 +34,24 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
 	http.Error(w, internalFailure, http.StatusInternalServerError)
+}
+
+func (router router) registerUserRoutes() {
+	router.engine.HandleFunc(fmt.Sprintf("GET %v", router.globalPrefix), router.IndexHandler)
+	router.engine.HandleFunc(fmt.Sprintf("GET %v/{id}", router.globalPrefix), router.ShowUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("POST %v", router.globalPrefix), router.CreateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("PUT %v/{id}", router.globalPrefix), router.UpdateUserHandler)
+	router.engine.HandleFunc(fmt.Sprintf("DELETE %v/{id}", router.globalPrefix), router.DeleteUserHandler)
+
+	router.engine.Handle("GET /assets/", router.serveStaticFiles())
+}
+
+func (router router) serveStaticFiles() http.Handler {
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	return http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS)))
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return r.PathValue("id")
 }

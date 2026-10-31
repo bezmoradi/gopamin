@@ -1,52 +1,20 @@
-package chi
+// Handlers shared by the net/http-style routers (http, chi, gorilla and
+// httprouter): each one's routes.go registers them and supplies pathID.
+package {{.Platform}}
 
 import (
 	"errors"
-	"fmt"
 	"html/template"
-	"io/fs"
 	"net/http"
-	"strings"
 
 	"{{.Name}}/internal/core/user/domain"
 	"{{.Name}}/internal/web"
-
-	"github.com/go-chi/chi/v5"
 )
 
 // internalFailure is what a server-side fault tells the browser. The underlying
 // error is deliberately never echoed: it can carry datastore credentials, host
 // names, and query text. Log it if you need it; do not render it.
 const internalFailure = "internal server error"
-
-func (router router) registerUserRoutes() {
-	router.engine.Route(fmt.Sprintf("%v", router.globalPrefix), func(r chi.Router) {
-		r.Get("/", router.IndexHandler)
-		r.Get("/{id}", router.ShowUserHandler)
-		r.Post("/", router.CreateUserHandler)
-		r.Put("/{id}", router.UpdateUserHandler)
-		r.Delete("/{id}", router.DeleteUserHandler)
-	})
-
-	router.serveStaticFiles()
-}
-
-func (router router) serveStaticFiles() {
-	assetsFS, _ := fs.Sub(web.Assets, "assets")
-	path := "/assets"
-	if path != "/" && path[len(path)-1] != '/' {
-		router.engine.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
-		path += "/"
-	}
-	path += "*"
-
-	router.engine.Get(path, func(w http.ResponseWriter, r *http.Request) {
-		rctx := chi.RouteContext(r.Context())
-		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
-		handler := http.StripPrefix(pathPrefix, http.FileServer(http.FS(assetsFS)))
-		handler.ServeHTTP(w, r)
-	})
-}
 
 func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
@@ -71,7 +39,7 @@ func (router router) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
-	rowsAffected, err := router.service.Delete(r.Context(), chi.URLParam(r, "id"))
+	rowsAffected, err := router.service.Delete(r.Context(), pathID(r))
 	if err != nil {
 		router.fail(w, "delete user", err)
 		return
@@ -112,7 +80,7 @@ func (router router) IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router router) ShowUserHandler(w http.ResponseWriter, r *http.Request) {
-	result, err := router.service.Show(r.Context(), chi.URLParam(r, "id"))
+	result, err := router.service.Show(r.Context(), pathID(r))
 	if errors.Is(err, domain.ErrUserNotFound) {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -144,7 +112,7 @@ func (router router) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	name := r.Form.Get("name")
 
-	rowsAffected, err := router.service.Update(r.Context(), chi.URLParam(r, "id"), name)
+	rowsAffected, err := router.service.Update(r.Context(), pathID(r), name)
 	if domain.IsValidationError(err) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return

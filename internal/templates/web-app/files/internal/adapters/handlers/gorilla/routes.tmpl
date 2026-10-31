@@ -1,7 +1,9 @@
 package gorilla
 
 import (
+	"io/fs"
 	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/web"
 	"{{.Name}}/internal/core/user/ports"
 	"net/http"
 
@@ -33,4 +35,28 @@ func NewRouter(service ports.UserServiceInterface, logger shared.Logger) http.Ha
 func (router router) fail(w http.ResponseWriter, operation string, err error) {
 	router.logger.Error(operation+" failed", "error", err)
 	http.Error(w, internalFailure, http.StatusInternalServerError)
+}
+
+func (router router) registerUserRoutes() {
+	subrouter := router.engine.PathPrefix(router.globalPrefix).Subrouter()
+
+	subrouter.HandleFunc("", router.IndexHandler).Methods("GET")
+	subrouter.HandleFunc("/{id}", router.ShowUserHandler).Methods("GET")
+	subrouter.HandleFunc("", router.CreateUserHandler).Methods("POST")
+	subrouter.HandleFunc("/{id}", router.UpdateUserHandler).Methods("PUT")
+	subrouter.HandleFunc("/{id}", router.DeleteUserHandler).Methods("DELETE")
+
+	router.engine.PathPrefix("/assets/").Handler(
+		http.StripPrefix("/assets/", router.serveStaticFiles()),
+	)
+}
+
+func (router router) serveStaticFiles() http.Handler {
+	assetsFS, _ := fs.Sub(web.Assets, "assets")
+	return http.FileServer(http.FS(assetsFS))
+}
+
+// pathID returns the {id} path parameter.
+func pathID(r *http.Request) string {
+	return mux.Vars(r)["id"]
 }
