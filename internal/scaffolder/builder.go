@@ -81,7 +81,7 @@ func hasCompose(p *Project) bool {
 }
 
 // observabilityPackages are the OpenTelemetry runtime modules fetched into the
-// generated go.mod when -o otel is set (real deps, unlike the pinned go-run tools).
+// generated go.mod when -o otel is set (real deps, unlike the go-run tools).
 var observabilityPackages = []string{
 	"go.opentelemetry.io/otel",
 	"go.opentelemetry.io/otel/sdk",
@@ -124,7 +124,7 @@ func buildOpenAPI(p *Project) error {
 	}
 	fileGenerator([]string{"openapi-spec"}, p)
 	fileGenerator([]string{"openapi-serve"}, p)
-	return goGetPackages(p.Path, []string{"github.com/swaggest/swgui/v5emb"})
+	return goGetPackages(p.Path, []string{"github.com/swaggest/swgui"})
 }
 
 // buildDatabase generates the user repository stack plus the chosen database's

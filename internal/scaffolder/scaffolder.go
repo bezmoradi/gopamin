@@ -95,7 +95,13 @@ func New(projectType, platform, broker, name, database, logger, ci, observabilit
 		os.Exit(1)
 	}
 
-	// `go get -u` records every dependency as `// indirect`; run `go mod tidy`
+	if err := goGetPackages(p.Path, securityFloor); err != nil {
+		fmt.Printf("Error generating project: %v\n", err)
+		_ = os.RemoveAll(projectPath)
+		os.Exit(1)
+	}
+
+	// `go get` records every dependency as `// indirect`; run `go mod tidy`
 	// once, after all files and go-gets, so directly-imported modules are promoted
 	// to direct requirements and anything unused is dropped. Non-fatal: the project
 	// is already complete and its go.mod is valid, so a tidy hiccup (e.g. a transient
@@ -214,7 +220,7 @@ func executeCommand(name string, args []string, dir string) error {
 // scaffolds, so generated projects target a consistent Go version regardless of
 // the user's local toolchain. Keep it in lockstep with the `go` directive in
 // this repo's go.mod (and the README) whenever the supported Go version is bumped.
-const generatedGoVersion = "1.27.1"
+const generatedGoVersion = "1.27.3"
 
 func initGoMod(projectName string, appDir string) error {
 	if err := executeCommand("go", []string{"mod", "init", projectName}, appDir); err != nil {
@@ -236,16 +242,17 @@ func goModTidy(appDir string) error {
 	return executeCommand("go", []string{"mod", "tidy"}, appDir)
 }
 
-func goGetPackages(appDir string, packages []string) error {
-	for _, packageName := range packages {
-		if err := executeCommand("go",
-			[]string{"get", "-u", packageName},
-			appDir); err != nil {
-			return err
-		}
+// goGetPackages adds modules to the generated go.mod at their pinned versions
+// (see modulePins), in one `go get` so the module graph is resolved once.
+func goGetPackages(appDir string, modules []string) error {
+	if len(modules) == 0 {
+		return nil
 	}
-
-	return nil
+	args, err := pinned(modules)
+	if err != nil {
+		return err
+	}
+	return executeCommand("go", append([]string{"get"}, args...), appDir)
 }
 
 func replaceNonAlphanumeric(input string, exclude ...string) string {
