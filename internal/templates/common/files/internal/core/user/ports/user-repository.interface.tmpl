@@ -15,4 +15,9 @@ type UserRepositoryInterface interface {
 	FetchAll(ctx context.Context, limit int, cursor string) (domain.Page, error)
 	Insert(ctx context.Context, name string) (string, error)
 	Update(ctx context.Context, id string, value string) error
+{{- if eq .ProjectType "worker"}}
+	// InsertOnce inserts a user for key unless one was already inserted for it;
+	// a repeat is not an error. key is a UUID (a consumed event's id).
+	InsertOnce(ctx context.Context, key string, name string) error
+{{- end}}
 }

@@ -45,7 +45,30 @@ func TestCreate(t *testing.T) {
 	})
 }
 
-func TestUpdate(t *testing.T) {
+{{if eq .ProjectType "worker"}}func TestCreateOnce(t *testing.T) {
+	ctx := context.Background()
+	mockRepository := mock.MockRepository{}
+	us := NewUserService(&mockRepository)
+
+	t.Run("should create one user per key", func(t *testing.T) {
+		for range 2 {
+			if err := us.CreateOnce(ctx, "key-1", "John"); err != nil {
+				t.Fatalf("should return nil but it returned %v", err)
+			}
+		}
+		if len(mockRepository.Users) != 1 {
+			t.Errorf("should store 1 user but it stored %d", len(mockRepository.Users))
+		}
+	})
+
+	t.Run("should return an error if name is empty", func(t *testing.T) {
+		if err := us.CreateOnce(ctx, "key-2", ""); !errors.Is(err, domain.ErrNameRequired) {
+			t.Errorf("expected domain.ErrNameRequired but received %v", err)
+		}
+	})
+}
+
+{{end}}func TestUpdate(t *testing.T) {
 	ctx := context.Background()
 	mockRepository := mock.MockRepository{}
 	us := NewUserService(&mockRepository)

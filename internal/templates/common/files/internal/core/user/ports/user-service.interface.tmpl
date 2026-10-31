@@ -8,6 +8,9 @@ import (
 
 type UserServiceInterface interface {
 	Create(ctx context.Context, name string) (string, error)
+{{- if eq .ProjectType "worker"}}
+	CreateOnce(ctx context.Context, key string, name string) error
+{{- end}}
 	Delete(ctx context.Context, id string) error
 	Index(ctx context.Context, limit int, cursor string) (domain.Page, error)
 	Show(ctx context.Context, id string) (domain.User, error)

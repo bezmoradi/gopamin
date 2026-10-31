@@ -115,7 +115,27 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	return id.String(), nil
 }
 
-func (r *Repository) Update(ctx context.Context, id string, newName string) error {
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user whose id is key (a consumed event's id, a UUID)
+// unless that row already exists. IF NOT EXISTS makes it a lightweight
+// transaction, so a redelivered event can't overwrite or duplicate the row.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	id, err := gocql.ParseUUID(key)
+	if err != nil {
+		return fmt.Errorf("event id %q is not a UUID: %w", key, err)
+	}
+
+	_, err = r.session.Query(
+		fmt.Sprintf(
+			"INSERT INTO %v (id, name) VALUES (?, ?) IF NOT EXISTS",
+			tableName,
+		),
+		id,
+		name,
+	).MapScanCASContext(ctx, map[string]any{})
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id string, newName string) error {
 	// The id column is a UUID; a malformed id can never match a row.
 	if _, err := gocql.ParseUUID(id); err != nil {
 		return domain.ErrUserNotFound

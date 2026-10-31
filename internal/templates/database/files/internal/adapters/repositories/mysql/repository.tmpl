@@ -108,7 +108,22 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	return strconv.FormatInt(lastInsertID, 10), nil
 }
 
-func (r *Repository) Update(ctx context.Context, id string, newName string) error {
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user for key (a consumed event's id) unless the unique
+// event_id column shows one was already inserted for it.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		fmt.Sprintf(
+			"INSERT INTO %s (name, event_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE event_id = event_id",
+			tableName,
+		),
+		name,
+		key,
+	)
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id string, newName string) error {
 	// An id the column can't hold can never match a row.
 	numericId, ok := parseId(id)
 	if !ok {

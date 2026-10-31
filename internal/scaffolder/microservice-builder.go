@@ -12,7 +12,11 @@ func buildWorker(g *generator) {
 	g.readme = append(g.readme, g.p.Broker+"-microservice-readme")
 	if g.p.Database != "" {
 		buildDatabase(g, g.p.Database)
+	} else {
+		// Events are about users, so a worker without a database still needs
+		// the user domain.
+		g.file("user")
+		g.file("user-test")
 	}
-	g.file("message")
 	g.file("worker-main")
 }

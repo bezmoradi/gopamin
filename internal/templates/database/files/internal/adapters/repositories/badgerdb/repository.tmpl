@@ -152,7 +152,22 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	return id.String(), nil
 }
 
-func (r *Repository) Update(ctx context.Context, id string, value string) error {
+{{if eq .ProjectType "worker"}}// InsertOnce stores a user under key (a consumed event's id) unless the key
+// already exists.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	return r.db.Update(func(txn *badger.Txn) error {
+		_, err := txn.Get([]byte(key))
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, badger.ErrKeyNotFound) {
+			return err
+		}
+		return txn.Set([]byte(key), []byte(name))
+	})
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id string, value string) error {
 	return r.db.Update(func(txn *badger.Txn) error {
 		if _, err := txn.Get([]byte(id)); err != nil {
 			if errors.Is(err, badger.ErrKeyNotFound) {

@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"os/signal"
-	"sync"
 	"syscall"
 {{- if .Observability}}
 	"time"
@@ -12,11 +11,13 @@ import (
 
 	"{{.Name}}/configs"
 	"{{.Name}}/internal/adapters/brokers/{{.Broker}}"
+	"{{.Name}}/internal/adapters/events"
 	"{{.Name}}/internal/adapters/loggers/{{.Logger}}"
 {{- if .Database}}
 	"{{.Name}}/internal/adapters/repositories/{{.Database}}"
 {{- end}}
-	"{{.Name}}/internal/core/message/domain"
+	"{{.Name}}/internal/core/shared"
+	"{{.Name}}/internal/core/user/domain"
 {{- if .Database}}
 	"{{.Name}}/internal/core/user/services"
 {{- end}}
@@ -33,29 +34,36 @@ func init() {
 
 func main() {
 	logger := {{.Logger}}.New()
+	if err := run(logger); err != nil {
+		logger.Fatal(err)
+	}
+}
+
+// run consumes until SIGINT/SIGTERM or a broker failure. It returns instead of
+// exiting, so the deferred Close calls run.
+func run(logger shared.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 {{- if .Database}}
 
 	repo, err := {{.Database}}.New()
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
 	defer func() { _ = repo.Close() }()
 	userService := services.NewUserService(repo)
 {{- end}}
 
-	broker, err := {{.Broker}}.New("testing", logger)
+	broker, err := {{.Broker}}.New()
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
 	defer func() { _ = broker.Close() }()
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 {{- if .Observability}}
+
 	// Initialize OpenTelemetry (OTLP export from the OTEL_* env). The deferred flush
-	// runs after the consumer goroutine is joined below, so in-flight message spans
-	// are exported. Fail-open: a setup error is logged, not fatal.
+	// runs after Consume returns, so in-flight message spans are exported.
+	// Fail-open: a setup error is logged, not fatal.
 	otelShutdown, err := observability.Setup(context.Background())
 	if err != nil {
 		logger.Error("otel setup failed; continuing without telemetry", "error", err)
@@ -68,58 +76,50 @@ func main() {
 	tracer := otel.Tracer("{{.Name}}")
 {{- end}}
 
-	// Producer side: publish a sample message. The domain entity owns no wire
-	// format (that's a transport concern), so the composition root maps it to a
-	// transport payload before marshalling.
-	msg := domain.Message{Data: "Hello World"}
-	sample, err := json.Marshal(struct {
-		Data string `json:"data"`
-	}{Data: msg.Data})
-	if err != nil {
-		logger.Fatal(err)
+	// Producer side: publish a sample user.created event, as an upstream service
+	// would. The events adapter wraps it in the versioned envelope.
+	sample := domain.Event{Kind: domain.UserCreated, User: domain.User{Name: "Hello World"}}
+	if err := events.NewPublisher(broker).Publish(ctx, sample); err != nil {
+		return fmt.Errorf("publish the sample event: %w", err)
 	}
-	if err := broker.Produce(ctx, sample); err != nil {
-		logger.Fatal(err)
-	}
-{{- if .Database}}
 
-	// Consumer side: persist every received message via the user service. The
-	// WaitGroup lets main wait for in-flight processing to finish on shutdown.
-{{- else}}
-
-	// Consumer side: log every message received off the broker. The WaitGroup lets
-	// main wait for in-flight processing to finish on shutdown before returning.
-{{- end}}
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		consumeErr := broker.Consume(ctx, func(value []byte) {
-{{- if .Database}}
-{{- if .Observability}}
-			msgCtx, span := tracer.Start(ctx, "message.process")
-			defer span.End()
-			if _, err := userService.Create(msgCtx, string(value)); err != nil {
-				logger.Error(err.Error())
-			}
-{{- else}}
-			if _, err := userService.Create(ctx, string(value)); err != nil {
-				logger.Error(err.Error())
-			}
-{{- end}}
-{{- else}}
-{{- if .Observability}}
-			_, span := tracer.Start(ctx, "message.process")
-			defer span.End()
-{{- end}}
-			logger.Info("message received", "payload", string(value))
-{{- end}}
-		})
-		if consumeErr != nil && ctx.Err() == nil {
-			logger.Fatal(consumeErr)
-		}
-	})
-
+	// Consumer side. Consume blocks until ctx ends (nil) or the broker fails (the
+	// error). A handler error means "retry this message"; a message that can never
+	// succeed is logged and acknowledged by returning nil.
 	logger.Info("worker is running; waiting for messages. Press Ctrl+C to stop.")
-	<-ctx.Done()
+	err = broker.Consume(ctx, func({{if or .Database .Observability}}ctx{{else}}_{{end}} context.Context, body []byte) error {
+{{- if .Observability}}
+		{{if .Database}}ctx{{else}}_{{end}}, span := tracer.Start(ctx, "message.process")
+		defer span.End()
+{{- end}}
+		envelope, err := events.Decode(body)
+		if err != nil {
+			logger.Error("dropping malformed message", "error", err, "bytes", len(body))
+			return nil
+		}
+{{- if .Database}}
+		if envelope.Type != string(domain.UserCreated) {
+			logger.Info("event ignored", "type", envelope.Type, "id", envelope.ID)
+			return nil
+		}
+
+		// CreateOnce keys the user by the event id, so a redelivered event
+		// doesn't create a second user.
+		err = userService.CreateOnce(ctx, envelope.ID, envelope.Data.Name)
+		if domain.IsValidationError(err) {
+			logger.Error("dropping invalid event", "id", envelope.ID, "error", err)
+			return nil
+		}
+		if err != nil {
+			logger.Error("persisting event failed; will retry", "id", envelope.ID, "error", err)
+			return err
+		}
+		logger.Info("event persisted", "type", envelope.Type, "id", envelope.ID)
+{{- else}}
+		logger.Info("event received", "type", envelope.Type, "id", envelope.ID, "bytes", len(body))
+{{- end}}
+		return nil
+	})
 	logger.Info("worker shutting down")
-	wg.Wait()
+	return err
 }

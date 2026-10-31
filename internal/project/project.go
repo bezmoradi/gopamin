@@ -68,6 +68,13 @@ func (p Project) HasHTTP() bool {
 	return p.ProjectType == "api" || p.ProjectType == "web-app"
 }
 
+// Slug is the last element of the module path, such as "svc" for
+// github.com/acme/svc. Topic, queue and consumer-group names derive from it, so
+// two projects on one broker don't share them by default.
+func (p Project) Slug() string {
+	return p.Name[strings.LastIndex(p.Name, "/")+1:]
+}
+
 // HasContainerizedBackend reports whether the project uses a containerized
 // database and/or a broker.
 func (p Project) HasContainerizedBackend() bool {

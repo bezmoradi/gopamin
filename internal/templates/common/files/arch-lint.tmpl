@@ -52,11 +52,9 @@ components:
   user-ports:    { in: internal/core/user/ports }
   user-services: { in: internal/core/user/services }
   repositories: { in: internal/adapters/repositories/* }
-{{- end}}
-{{- if eq .ProjectType "worker"}}
-  # The `message` aggregate (worker only) — a second bounded context, demonstrating
-  # the multi-aggregate layout. Only its domain is generated today.
-  message-domain: { in: internal/core/message/domain }
+{{- else if $hasDomain}}
+  # A worker without a database still has the user domain: its events are about users.
+  user-domain:   { in: internal/core/user/domain }
 {{- end}}
   loggers:      { in: internal/adapters/loggers/* }
 {{- if $hasHandlers}}
@@ -71,6 +69,7 @@ components:
 {{- end}}
 {{- if $hasBrokers}}
   brokers:      { in: internal/adapters/brokers/* }
+  events:       { in: internal/adapters/events }
 {{- end}}
 {{- if $hasWeb}}
   web:          { in: internal/web }
@@ -84,8 +83,8 @@ components:
 
 deps:
   # PURE CORE. No `anyVendorDeps`: the aggregates + shared are stdlib + each other
-  # only. Leaves (user-domain, message-domain, shared) depend on nothing, so they
-  # are omitted here; the layering within the user aggregate is enforced below.
+  # only. Leaves (user-domain, shared) depend on nothing, so they are omitted
+  # here; the layering within the user aggregate is enforced below.
 {{- if $hasCore}}
   user-ports:
     mayDependOn: [user-domain]
@@ -113,9 +112,13 @@ deps:
     anyVendorDeps: true          # HTTP transport types / status helpers
 {{- end}}
 {{- if $hasBrokers}}
+  # brokers move bytes; events owns their format. Neither imports the other: cmd
+  # hands the broker to events.NewPublisher.
   brokers:
-    mayDependOn: [shared]
     anyVendorDeps: true          # kafka / rabbitmq / redis client
+  events:
+    mayDependOn: [user-domain]
+    anyVendorDeps: true          # google/uuid (event ids)
 {{- end}}
   configs:
     mayDependOn: [tools]
@@ -132,7 +135,7 @@ deps:
   # COMPOSITION ROOT — the deliberate escape hatch, exactly one per project: cmd
   # constructs concrete adapters and injects them into services.
   cmd:
-    mayDependOn: [shared, loggers, configs, tools{{if $hasCore}}, user-domain, user-ports, user-services, repositories{{end}}{{if eq .ProjectType "worker"}}, message-domain{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers{{end}}{{if $hasWeb}}, web{{end}}{{if .Observability}}, observability{{end}}]
+    mayDependOn: [shared, loggers, configs, tools{{if $hasCore}}, user-domain, user-ports, user-services, repositories{{else if $hasDomain}}, user-domain{{end}}{{if $hasHandlers}}, handlers, cmd-server{{end}}{{if $hasApiResponse}}, api-response{{end}}{{if $hasBrokers}}, brokers, events{{end}}{{if $hasWeb}}, web{{end}}{{if .Observability}}, observability{{end}}]
     anyVendorDeps: true
 {{- if $hasHandlers}}
   cmd-server:

@@ -32,7 +32,7 @@ curl --location --request DELETE 'http://localhost:8080/users/<USER_ID>'
 {{if .Broker}}
 ### Events
 
-On a write (creating a user), the app publishes an event to **{{.Broker}}**, and a consumer loop runs alongside the HTTP server. See the "Broker workflow" section of `AGENTS.md`.
+Each create, update and delete publishes an event to the **{{.Broker}}** {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} `{{.Slug}}-users`, and a consumer loop runs alongside the HTTP server logging each event's type and id. See the "Broker workflow" section of `AGENTS.md` for the event format and delivery guarantees.
 
 **{{.Broker}} runs in a container**: start it with `make docker-up` before `make run`, or the app cannot reach the broker. `make docker-down` stops it (`make docker-down-rm-vol` also drops the volume).
 {{end}}{{if .Observability}}

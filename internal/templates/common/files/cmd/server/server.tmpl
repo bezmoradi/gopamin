@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 {{- if and .Observability (ne .Platform "graphql")}}
 	"strings"
 {{- end}}
-	"syscall"
 	"time"
 
 {{- if .OpenAPI}}
@@ -29,9 +27,10 @@ import (
 )
 
 // Serve mounts the application handler behind the shared middleware chain, next
-// to the health probes, and runs the server until SIGINT/SIGTERM, then drains it.
-// checks are the dependencies /readyz probes.
-func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
+// to the health probes, and runs the server until ctx ends, then drains it. checks
+// are the dependencies /readyz probes. It returns an error if the server can't
+// start or stops unexpectedly.
+func Serve(ctx context.Context, app http.Handler, logger shared.Logger, checks ...health.Check) error {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -59,7 +58,7 @@ func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
 	// with authentication disabled.
 	authConfig, err := auth.LoadConfig()
 	if err != nil {
-		logger.Fatal(fmt.Errorf("auth config: %w", err))
+		return fmt.Errorf("auth config: %w", err)
 	}
 {{- end}}
 
@@ -68,7 +67,7 @@ func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
 	allowedOrigins := middleware.AllowedOrigins()
 	crossOrigin, err := middleware.CrossOrigin(allowedOrigins)
 	if err != nil {
-		logger.Fatal(err)
+		return err
 	}
 
 	// Mount liveness/readiness at the transport layer so they work regardless of
@@ -119,9 +118,6 @@ func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 {{- if eq .Platform "graphql"}}
 	logger.Info(fmt.Sprintf("The GraphQL server is accessible at http://localhost:%s/graphql", port))
 {{- else if eq .ProjectType "web-app"}}
@@ -129,20 +125,23 @@ func Serve(app http.Handler, logger shared.Logger, checks ...health.Check) {
 {{- else}}
 	logger.Info(fmt.Sprintf("The API is accessible at http://localhost:%s/api/v1/users", port))
 {{- end}}
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal(err)
-		}
-	}()
+	// ListenAndServe only returns before Shutdown on a failure, such as the port
+	// being taken.
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
 
-	<-ctx.Done()
-	stop()
+	select {
+	case err := <-serveErr:
+		return err
+	case <-ctx.Done():
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("graceful shutdown failed", "error", err)
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+	return nil
 }
 {{- if and .Observability (ne .Platform "graphql")}}
 

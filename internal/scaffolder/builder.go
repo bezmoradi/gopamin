@@ -82,7 +82,10 @@ func buildCommon(g *generator) {
 
 	if p.Broker != "" {
 		g.file(p.Broker + "-microservice-broker")
+		g.file("user-events")
+		g.file("events")
 		g.need(workerRecipes[p.Broker]...)
+		g.need("github.com/google/uuid")
 	}
 	if p.HasObservability() {
 		g.file("observability")

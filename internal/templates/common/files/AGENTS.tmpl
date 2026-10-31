@@ -24,7 +24,7 @@ A **GraphQL** API (graphql-go) exposing a `User` schema over a single `/graphql`
 {{- else if $isWeb -}}
 A server-rendered **web application** on the **{{.Platform}}** HTTP framework: it renders HTML pages for a `User` resource and serves embedded CSS. The binary is self-contained — HTML/CSS are embedded via `//go:embed` — see [Web UI](#web-ui).
 {{- else if $isWorker -}}
-A **broker-driven worker** with no HTTP server. It connects to **{{.Broker}}**, publishes a sample message on startup, and consumes messages in a loop until interrupted — see [Broker workflow](#broker-workflow).
+A **broker-driven worker** with no HTTP server. It connects to **{{.Broker}}**, publishes a sample event on startup, and consumes events in a loop until interrupted — see [Broker workflow](#broker-workflow).
 {{- else -}}
 A minimal **hello-world** starter that demonstrates the Clean Architecture layout{{if $hasRealDB}} with a durable `{{.Database}}` repository{{end}}. Grow it by following the [dependency rule](#the-dependency-rule).
 {{- end}}
@@ -44,16 +44,16 @@ cmd/
 {{- end}}
 internal/
   core/
-    shared/    # cross-cutting contracts: logger{{if $hasHTTP}} + router{{end}} (used across aggregates)
+    shared/    # cross-cutting contracts: the logger port (used across aggregates)
 {{- if $hasRepo}}
     user/      # the User aggregate — grouped by feature, layered within
       domain/    # entities + invariants (no external imports)
       ports/     # interfaces the aggregate owns (implemented by adapters)
       services/  # use cases (depend only on ports)
 {{- end}}
-{{- if $isWorker}}
-    message/   # the Message aggregate — a second bounded context
-      domain/    # entities + invariants
+{{- if and $isWorker (not $hasRepo)}}
+    user/
+      domain/    # the user entity and its events (no external imports)
 {{- end}}
   adapters/  # implement the ports; the only place third-party libs live
 {{- if $isRest}}
@@ -72,7 +72,8 @@ internal/
 {{- end}}
 {{- end}}
 {{- if $hasBroker}}
-    brokers/{{.Broker}}/  # {{.Broker}} producer + consumer
+    brokers/{{.Broker}}/  # {{.Broker}} producer + consumer (moves bytes)
+    events/  # the event envelope: encodes and decodes the bytes
 {{- end}}
     loggers/{{.Logger}}/  # logging adapter (implements the logger port)
 {{- if $isWeb}}
@@ -99,7 +100,7 @@ cmd  →  adapters  →  services  →  ports  ←  domain
 Inner layers must never import outer ones. Concretely:
 
 - The core is grouped **by aggregate** (e.g. `internal/core/user/`), each with its own layered sub-packages:
-  - `.../<aggregate>/domain/` — business entities and their invariants. **No** framework, database, or transport imports, and **no serialization tags** (`json:"..."`): wire formatting is a transport concern. The adapters own the wire shape — {{if $isRest}}the REST layer maps entities to DTOs in `internal/adapters/api` (e.g. `api.User`, mapped via `api.NewUser`){{else if $isGraphql}}GraphQL resolves entities through its own schema types{{else if $isWeb}}the web view uses `html/template` field access{{else}}the composition root maps entities to a transport payload before marshalling{{end}}.
+  - `.../<aggregate>/domain/` — business entities and their invariants. **No** framework, database, or transport imports, and **no serialization tags** (`json:"..."`): wire formatting is a transport concern. The adapters own the wire shape — {{if $isRest}}the REST layer maps entities to DTOs in `internal/adapters/api` (e.g. `api.User`, mapped via `api.NewUser`){{else if $isGraphql}}GraphQL resolves entities through its own schema types{{else if $isWeb}}the web view uses `html/template` field access{{else if $isWorker}}the events adapter maps them to the event envelope in `internal/adapters/events`{{else}}the composition root maps entities to a transport payload before marshalling{{end}}.
   - `.../<aggregate>/ports/` — interfaces that aggregate owns and the outside world implements.
   - `.../<aggregate>/services/` — use cases / business logic. Depend on **ports**, never on a concrete adapter.
 
@@ -163,7 +164,7 @@ Base path `/api/v1/users`. Every response is the JSON envelope `{"message"?, "da
 | `PUT` | `/api/v1/users/:id` | update — body `{"name":"..."}`; returns the user | `200` |
 | `DELETE` | `/api/v1/users/:id` | delete | `200` |
 
-Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `413` body over 1 MiB · `415` write without `Content-Type: application/json` · `422` validation (e.g. empty name) · `500` datastore failure{{if .PublishesEvents}}, or `{"error":"Event publish failure"}` when the row was written but its event never reached **{{.Broker}}** — the two are distinguished so a broker outage doesn't page whoever owns the database. On that one the row **is** committed, so a retry duplicates it rather than completing it (an outbox would be the fix; see `internal/core/user/services`){{end}}. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
+Status codes: `200`/`201` success · `400` malformed JSON body **or invalid pagination cursor** · `404` not found · `413` body over 1 MiB · `415` write without `Content-Type: application/json` · `422` validation (e.g. empty name) · `500` datastore failure{{if .PublishesEvents}}, or `{"error":"Event publish failure"}` when the row was written but its event never reached **{{.Broker}}** — the two are distinguished so a broker outage doesn't page whoever owns the database. On that one the write **is** committed, so retrying a create adds a second user rather than completing the first (an outbox would be the fix; see `internal/core/user/services`){{end}}. **Errors** populate the `error` field (e.g. `{"error":"Not found"}`); **successes** populate `message`/`data`. Keep this convention when adding endpoints — do not return an error under `message`.
 
 **Pagination.** The list endpoint is cursor-paginated so a single request can never trigger an unbounded scan. `?limit=N` bounds the page (default `20`, capped at `100`, both in `domain`); when more rows remain the envelope carries a `next_cursor`, which the client passes back verbatim as `?cursor=…` to fetch the next page. The cursor is **opaque** (URL-safe base64, `base64.RawURLEncoding`) — its contents are a private detail of the repository (a keyset id, a driver paging token, …), so never parse or construct one client-side. A malformed cursor is `400 {"error":"Invalid pagination cursor"}`. There is no offset paging: two of the supported stores (Apache Cassandra, DynamoDB) have no offset at all, so the cursor model is the only one that spans every datastore.
 
@@ -330,22 +331,29 @@ Every application route requires a bearer token; a demo `POST /login` issues one
 ## Broker workflow
 {{- if $isWorker}}
 
-This worker has **no HTTP server**. On startup, `cmd/main.go`:
+This worker has **no HTTP server**. `cmd/main.go`:
 
-1. connects to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`);
-2. publishes one sample `Message{Data: "Hello World"}` (JSON) to the `testing` {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}};
-3. runs a consume loop that {{if $hasRealDB}}persists every message through the user service (only failures are logged){{else}}logs every message as `message received`{{end}};
-4. shuts down gracefully on `SIGINT`/`SIGTERM` (via `signal.NotifyContext`).
+1. connects to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`){{if $hasRealDB}} and `{{.Database}}`{{end}};
+2. publishes one sample `user.created` event, for a user named `Hello World`, to the `{{.Slug}}-users` {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} (`{{if eq .Broker "kafka"}}KAFKA_TOPIC{{else if eq .Broker "rabbitmq"}}RABBITMQ_QUEUE{{else}}REDIS_CHANNEL{{end}}`);
+3. consumes until `SIGINT`/`SIGTERM`: {{if $hasRealDB}}each `user.created` event becomes a user, at most once per event id (`CreateOnce`), so a redelivered event doesn't add a second user; other event types are logged and skipped{{else}}each event is logged as `event received` with its type, id and size{{end}}.
 {{- else}}
 
 This {{if $isWeb}}web app{{else}}API{{end}} adds event messaging **alongside** its HTTP server (one binary):
 
-1. **Producer** — the user service holds an `EventPublisher` port (wired with `WithPublisher`), so a write (e.g. creating a user) publishes an event to **{{.Broker}}** (adapter: `internal/adapters/brokers/{{.Broker}}`). The core stays broker-agnostic — it depends on the port, not the client.
-2. **Consumer** — a consume loop runs in a goroutine next to the HTTP server, logging every message as `event received`, and is joined on shutdown (a `sync.WaitGroup`, as in the `worker` type) so in-flight messages finish.
-3. Both share the process's signal context, so `SIGINT`/`SIGTERM` drains the HTTP server and stops the consumer together.
+1. **Producer** — after a create, update or delete commits, the user service publishes `user.created`, `user.updated` or `user.deleted` through its `EventPublisher` port (wired with `WithPublisher`). The events adapter (`internal/adapters/events`) encodes it; the broker adapter (`internal/adapters/brokers/{{.Broker}}`) sends it to the `{{.Slug}}-users` {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} (`{{if eq .Broker "kafka"}}KAFKA_TOPIC{{else if eq .Broker "rabbitmq"}}RABBITMQ_QUEUE{{else}}REDIS_CHANNEL{{end}}`). The core depends on the port, not on either adapter.
+2. **Consumer** — a consume loop runs next to the HTTP server and logs each event as `event received` with its type, id and size, never the payload (it holds a user's name). If the consumer fails, the server drains and the process exits 1, so its supervisor restarts it.
+3. `SIGINT`/`SIGTERM` drains the HTTP server and stops the consumer together.
 {{- end}}
 
-{{if eq .Broker "redis"}}The consumer subscribes at construction, so a message published on the `testing` channel while it is running is delivered. Redis pub/sub drops messages sent while no subscriber is connected — publish from another client (e.g. `redis-cli PUBLISH testing '...'`) to feed it.{{else if eq .Broker "kafka"}}Kafka retains the topic log, so messages are consumed even if produced before the consumer starts. Produce more messages to the `testing` topic from any Kafka client.{{else}}RabbitMQ queues messages, so they are consumed even if produced before the consumer starts. Publish more messages to the `testing` queue from any AMQP client.{{end}}
+**Event format.** Every message is a versioned JSON envelope owned by `internal/adapters/events`; `id` is unique per event, so a consumer can tell a redelivery from a new event. A message that isn't such an envelope is logged and dropped.
+
+```json
+{"id":"<uuid>","type":"user.created","version":1,"occurred_at":"2026-01-01T00:00:00Z","data":{"id":"<user id>","name":"Ada"}}
+```
+
+**Delivery.** {{if eq .Broker "redis"}}Redis pub/sub is **at-most-once**: a message published while this process is down or reconnecting is lost, and every replica receives every message. Use Kafka or RabbitMQ when a message must not be lost.{{else}}**At-least-once**: {{if eq .Broker "kafka"}}the consumer group (`KAFKA_GROUP_ID`) commits a message's offset{{else}}the consumer acknowledges a message{{end}} only after the handler returns nil, so a message whose processing didn't finish (a crash, or a shutdown during a retry) is delivered again{{if eq .Broker "kafka"}}. Replicas in one group split the partitions{{end}}. Keep handlers idempotent{{if and $isWorker $hasRealDB}}, as `CreateOnce` is{{end}}.{{end}} A failing handler is retried with backoff (0.5 s, doubling to 30 s); each attempt has 30 s and isn't cancelled by the shutdown signal, so a write is never cut off halfway. There is no dead-letter {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}}: a handler returns nil for a message it can never process{{if and $isWorker $hasRealDB}}, as the worker does for malformed and invalid events{{end}}.
+
+{{if eq .Broker "kafka"}}**Publishing** waits for every in-sync replica (`RequireAll`) and gives up after 2 s. A publish that timed out can still be delivered, so {{if $isWorker}}a failed publish means "maybe sent"{{else}}`500 Event publish failure` means "maybe sent"{{end}}.{{else if eq .Broker "rabbitmq"}}**Publishing** sends persistent messages to a durable queue and waits for the broker's confirm (2 s budget). A queue that already exists as non-durable can't be redeclared durable (`PRECONDITION_FAILED`, 406): delete it once, or set another `RABBITMQ_QUEUE`.{{else}}**Publishing** reaches only the subscribers connected at that moment. Set `REDIS_TLS=true` for a server that requires TLS.{{end}}
 {{- end}}
 
 ## Running
@@ -389,7 +397,7 @@ Configuration is loaded from `.env` at the project root (via `godotenv`). Real s
 {{else if eq .Database "mongodb"}}- `MONGODB_URI` — the full connection string the app uses (credentials, hosts, replica set, `tls=true`); `MONGODB_NAME` — the database. `MONGODB_USERNAME`/`MONGODB_PASSWORD`/`MONGODB_PORT` configure only the compose container.
 {{else if eq .Database "postgres"}}- `POSTGRES_*` connection settings — host, port, database and credentials, plus `POSTGRES_SSLMODE` (required): `disable` only for the local compose database, `verify-full` for a real server.
 {{else}}- `{{.Database}}` connection settings — host, port, and credentials. See `.env` for the exact keys.
-{{end}}{{end}}{{if $hasBroker}}- `{{.Broker}}` connection settings — host/port (and credentials where applicable). See `.env` for the exact keys.
+{{end}}{{end}}{{if $hasBroker}}- {{if eq .Broker "kafka"}}`KAFKA_BROKER`, `KAFKA_TOPIC` and `KAFKA_GROUP_ID` (the consumer group){{else if eq .Broker "rabbitmq"}}`RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD` and `RABBITMQ_QUEUE`{{else}}`REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_CHANNEL` and `REDIS_TLS`{{end}} — the broker connection and the {{if eq .Broker "kafka"}}topic{{else if eq .Broker "rabbitmq"}}queue{{else}}channel{{end}} (default `{{.Slug}}-users`, so projects sharing a broker don't share it).
 {{end}}{{if .Auth}}- `JWT_SECRET`, `JWT_TTL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` — JWT signing + demo login (see the Authentication section).
 {{end}}{{if .Observability}}- `OTEL_*` — OpenTelemetry exporter endpoint, sampler, and resource attributes (see the Observability section).
 {{end}}See `.env` for the full, authoritative list of keys this project reads.

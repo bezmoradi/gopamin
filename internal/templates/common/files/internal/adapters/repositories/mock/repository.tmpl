@@ -18,6 +18,9 @@ type MockRepository struct {
 	SpyOnDelete   func(ctx context.Context, id string) error
 	SpyOnFetch    func(ctx context.Context, id string) (domain.User, error)
 	SpyOnFetchAll func(ctx context.Context, limit int, cursor string) (domain.Page, error)
+{{- if eq .ProjectType "worker"}}
+	insertedKeys map[string]bool
+{{- end}}
 }
 
 func (m *MockRepository) Insert(ctx context.Context, name string) (string, error) {
@@ -34,7 +37,23 @@ func (m *MockRepository) Insert(ctx context.Context, name string) (string, error
 	return id.String(), nil
 }
 
-func (m *MockRepository) Update(ctx context.Context, id string, name string) error {
+{{if eq .ProjectType "worker"}}func (m *MockRepository) InsertOnce(ctx context.Context, key string, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.insertedKeys[key] {
+		return nil
+	}
+	if m.insertedKeys == nil {
+		m.insertedKeys = map[string]bool{}
+	}
+	m.insertedKeys[key] = true
+	m.Users = append(m.Users, domain.User{Id: key, Name: name})
+
+	return nil
+}
+
+{{end}}func (m *MockRepository) Update(ctx context.Context, id string, name string) error {
 	if m.SpyOnUpdate != nil {
 		return m.SpyOnUpdate(ctx, id, name)
 	}

@@ -64,10 +64,26 @@ func New() (*Repository, error) {
 		return nil, fmt.Errorf("cannot reach MongoDB: %w", err)
 	}
 
-	return &Repository{
+	r := &Repository{
 		client:     client,
 		collection: client.Database(database).Collection(collectionName),
-	}, nil
+	}
+{{if eq .ProjectType "worker"}}
+	// InsertOnce relies on this index to refuse a second user for one event. It
+	// is partial, so users created without an event (by Insert) don't collide.
+	_, err = r.collection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{ {Key: "event_id", Value: 1} },
+		Options: options.Index().
+			SetUnique(true).
+			SetPartialFilterExpression(bson.D{ {Key: "event_id", Value: bson.D{ {Key: "$exists", Value: true} }} }),
+	})
+	if err != nil {
+		_ = client.Disconnect(context.Background())
+		return nil, fmt.Errorf("cannot create the event_id index: %w", err)
+	}
+{{- end}}
+
+	return r, nil
 }
 
 // Ping reports whether MongoDB answers; /readyz calls it.
@@ -101,7 +117,17 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	return insertedId.Hex(), nil
 }
 
-func (r *Repository) Update(ctx context.Context, id string, name string) error {
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user for key (a consumed event's id) unless the unique
+// event_id index shows one was already inserted for it.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	_, err := r.collection.InsertOne(ctx, bson.M{"name": name, "event_id": key})
+	if mongo.IsDuplicateKeyError(err) {
+		return nil
+	}
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id string, name string) error {
 	objectID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		// A malformed id can never match a document.

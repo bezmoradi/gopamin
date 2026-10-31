@@ -1,100 +1,29 @@
 ## Redis Guide
 
-Since this project incorporates Redis as a Pub/Sub service, you must adhere to the following instructions before running the app.  
-A `docker-compose.yml` file is included in this project which will be used for creating a Redis container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
+`make docker-up` starts Redis from `docker-compose.yml`, and `make docker-down` stops it (`make docker-down-rm-vol` also removes its volume).
 
-### Run A Redis Container
+`make run` subscribes to the channel `{{.Slug}}-users` (`REDIS_CHANNEL`), publishes one sample `user.created` event to it, then consumes until Ctrl+C. {{if .Database}}Each `user.created` event becomes a user in {{.Database}}, once per event id.{{else}}It logs each event's type, id and size.{{end}} The "Broker workflow" section of `AGENTS.md` describes the event format.
 
-First, make sure Docker is up and running on your machine. Then in the root path of the project run the following command:
+**Redis pub/sub is at-most-once.** Redis delivers a message only to the subscribers connected at that moment and keeps nothing: a message published while the worker is stopped or reconnecting is lost, and every running replica receives every message. Use Kafka or RabbitMQ when a message must not be lost. Set `REDIS_TLS=true` for a server that requires TLS.
 
-```text
-$ make docker-up
-```
+### Watch and send events
 
-In order to stop the container, you can run the following command:
+The container requires the password from `REDIS_PASSWORD` in `.env`:
 
 ```text
-$ make docker-down
+$ docker compose exec redis redis-cli -a <REDIS_PASSWORD>
+127.0.0.1:6379> SUBSCRIBE {{.Slug}}-users
 ```
 
-Although it stops the container, still the volume related to the previously-created container exits and if you run `make docker-up` again, you have access to persisted data if any.  
-In order to stop the container and at the same time remove the volume related to that container, you can run the following command:
+In a second terminal, publish an event envelope. Anything else is logged and dropped, and the `id` must be a new UUID for each event:
 
 ```text
-$ make docker-down-rm-vol
+$ docker compose exec redis redis-cli -a <REDIS_PASSWORD> PUBLISH {{.Slug}}-users \
+    '{"id":"7c1f8f9e-8a8e-4a43-9a43-0f9f4b8c2f10","type":"user.created","version":1,"data":{"name":"Ada"}}'
 ```
 
-## Publish A New Message
+The worker logs `{{if .Database}}event persisted{{else}}event received{{end}}` with the event's type and id.
 
-By running the following command in the terminal, open the Redis CLI. The container is started with `--requirepass`, so you must pass the password from `REDIS_PASSWORD` in `.env` — without `-a` every command returns `NOAUTH Authentication required.`:
+### Publisher-only and subscriber-only workers
 
-```text
-$ redis-cli -a doe
-```
-
-In the Redis CLI, subscribe to a channel using the `SUBSCRIBE` command. For example, if you want to subscribe to a channel named `testing`, you need to run the following command:
-
-```text
-127.0.0.1:6379> SUBSCRIBE testing
-```
-
-The generated worker is a single long-running process. Its `main` opens the broker, publishes one sample message on startup, and then subscribes to the channel until you stop it with Ctrl+C:
-
-```go
-broker, err := redis.New("testing", logger)
-if err != nil {
-	logger.Fatal(err)
-}
-defer func() { _ = broker.Close() }()
-
-// Publish a sample message. The domain entity carries no wire-format tags, so
-// the composition root maps it to a transport payload before marshalling.
-sample, _ := json.Marshal(struct {
-	Data string `json:"data"`
-}{Data: "Hello World"})
-_ = broker.Produce(ctx, sample)
-
-// Consume every message until the process is stopped.
-go broker.Consume(ctx, func(value []byte) {
-	logger.Info("message received", "payload", string(value))
-})
-```
-
-We use the same channel name (`testing`) as the `SUBSCRIBE` command above. Running `make run` publishes one message to the channel; a `redis-cli` subscriber sees:
-
-```text
-1) "message"
-2) "testing"
-3) "{\"data\":\"Hello World\"}"
-```
-
-## Publish More Messages
-
-The worker already subscribes to the channel, so to send more messages, publish from the Redis CLI:
-
-```text
-127.0.0.1:6379> PUBLISH testing "Hello World"
-(integer) 1
-```
-
-The terminal window running the worker logs the payload:
-
-```text
-message received payload=Hello World
-```
-
-## Publisher-Only and Subscriber-Only Workers
-
-To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure publisher, or delete the `broker.Produce(...)` call for a pure subscriber. You can also scaffold two separate workers:
-
-```text
-$ gopamin new -n publisher -t worker -b redis -l {{.Logger}}
-$ gopamin new -n subscriber -t worker -b redis -l {{.Logger}}
-```
-
-Edit each to keep just its half, then run both with `make run` (start the subscriber first so it doesn't miss the publisher's message). The subscriber logs each payload it receives:
-
-```text
-$ make run
-message received payload={"data":"Hello World"}
-```
+Delete the `broker.Consume(...)` call in `cmd/main.go` for a pure publisher, or the sample `Publish(...)` for a pure subscriber.

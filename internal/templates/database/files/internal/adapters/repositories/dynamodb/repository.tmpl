@@ -167,7 +167,28 @@ func (r *Repository) Insert(ctx context.Context, name string) (string, error) {
 	return id.String(), nil
 }
 
-func (r *Repository) Update(ctx context.Context, id, updatedName string) error {
+{{if eq .ProjectType "worker"}}// InsertOnce inserts a user whose id is key (a consumed event's id, a UUID)
+// unless that item already exists.
+func (r *Repository) InsertOnce(ctx context.Context, key string, name string) error {
+	if !validID(key) {
+		return fmt.Errorf("event id %q is not a UUID", key)
+	}
+
+	_, err := r.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(tableName),
+		Item: map[string]types.AttributeValue{
+			"id":        &types.AttributeValueMemberS{Value: key},
+			"firstName": &types.AttributeValueMemberS{Value: name},
+		},
+		ConditionExpression: aws.String("attribute_not_exists(id)"),
+	})
+	if _, exists := errors.AsType[*types.ConditionalCheckFailedException](err); exists {
+		return nil
+	}
+	return err
+}
+
+{{end}}func (r *Repository) Update(ctx context.Context, id, updatedName string) error {
 	if !validID(id) {
 		return domain.ErrUserNotFound
 	}

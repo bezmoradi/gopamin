@@ -1,96 +1,28 @@
 ## Kafka Guide
 
-Since this project incorporates Kafka as a Pub/Sub service, you must adhere to the following instructions before running the app.  
-A `docker-compose.yml` file is included in this project which will be used for creating a Kafka container. Some commands are also added to the `Makefile` file for running a container (The following guide is applicable if GNU/Make tool is installed on your machine).
+`make docker-up` starts Kafka from `docker-compose.yml`, and `make docker-down` stops it.
 
-### Run A Kafka Container
+`make run` publishes one sample `user.created` event to the topic `{{.Slug}}-users` (`KAFKA_TOPIC`), then consumes the topic as the consumer group `{{.Slug}}` (`KAFKA_GROUP_ID`) until Ctrl+C. {{if .Database}}Each `user.created` event becomes a user in {{.Database}}, once per event id, so each run adds exactly one user.{{else}}It logs each event's type, id and size.{{end}} The group resumes after the last message it committed, so a restart doesn't replay the topic. The "Broker workflow" section of `AGENTS.md` describes the event format and the delivery guarantees.
 
-First, make sure Docker is up and running on your machine. Then in the root path of the project run the following command:
-
-```text
-$ make docker-up
-```
-
-In order to stop the container, you can run the following command:
+### Watch the topic
 
 ```text
-$ make docker-down
+$ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+    --bootstrap-server localhost:9092 --topic {{.Slug}}-users --from-beginning
 ```
 
-## Produce A New Message
+### Send an event
 
-By running the following command in the terminal, open the Kafka CLI:
+The worker reads event envelopes; anything else is logged and dropped. The `id` must be a new UUID for each event:
 
 ```text
-$ docker exec -it kafka sh
+$ docker compose exec kafka /opt/kafka/bin/kafka-console-producer.sh \
+    --bootstrap-server localhost:9092 --topic {{.Slug}}-users
+>{"id":"7c1f8f9e-8a8e-4a43-9a43-0f9f4b8c2f10","type":"user.created","version":1,"data":{"name":"Ada"}}
 ```
 
-In the Kafka CLI, consume message from a topic using the following command. For example, if you want to consume data coming from a topic named `testing`, you need to run the following command:
+The worker logs `{{if .Database}}event persisted{{else}}event received{{end}}` with the event's type and id.
 
-```text
-$ kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic testing
-```
+### Producer-only and consumer-only workers
 
-The generated worker is a single long-running process. Its `main` opens the broker, publishes one sample message on startup, and then consumes every message on the topic until you stop it with Ctrl+C:
-
-```go
-broker, err := kafka.New("testing", logger)
-if err != nil {
-	logger.Fatal(err)
-}
-defer func() { _ = broker.Close() }()
-
-// Publish a sample message. The domain entity carries no wire-format tags, so
-// the composition root maps it to a transport payload before marshalling.
-sample, _ := json.Marshal(struct {
-	Data string `json:"data"`
-}{Data: "Hello World"})
-_ = broker.Produce(ctx, sample)
-
-// Consume every message until the process is stopped.
-go broker.Consume(ctx, func(value []byte) {
-	logger.Info("message received", "payload", string(value))
-})
-```
-
-We use the same topic name (`testing`) as the CLI consumer above. Running `make run` publishes `{"data":"Hello World"}` to the topic and then keeps running, logging any further messages:
-
-```text
-{"data":"Hello World"}
-```
-
-## Send More Messages
-
-The worker already consumes the topic, so to send more messages, open the Kafka CLI producer:
-
-```text
-$ kafka-console-producer.sh --bootstrap-server localhost:9092 --topic testing
-```
-
-Then enter a message such as:
-
-```text
->Hello World
-```
-
-Hitting enter, the terminal window running the worker logs the payload:
-
-```text
-message received payload=Hello World
-```
-
-## Producer-Only and Consumer-Only Workers
-
-To specialize a worker, keep only the half you need in `main`: delete the `broker.Consume(...)` goroutine for a pure producer, or delete the `broker.Produce(...)` call for a pure consumer. You can also scaffold two separate workers:
-
-```text
-$ gopamin new -n producer -t worker -b kafka -l {{.Logger}}
-$ gopamin new -n consumer -t worker -b kafka -l {{.Logger}}
-```
-
-Edit each to keep just its half, then run both with `make run` (start the consumer first so it doesn't miss the producer's message). The consumer logs each payload it receives:
-
-```text
-$ make run
-message received payload={"data":"Hello World"}
-```
+Delete the `broker.Consume(...)` call in `cmd/main.go` for a pure producer, or the sample `Publish(...)` for a pure consumer.
