@@ -40,7 +40,7 @@ To create a worker (a broker-driven service with no HTTP server) using the Kafka
 	// wait on the network. It is advisory and never blocks.
 	PreRun: func(cmd *cobra.Command, args []string) {
 		if latest := newerVersion(); latest != "" {
-			fmt.Printf("Gopamin %v is available (you have %v). To update, run: go install github.com/bezmoradi/gopamin@%v\n\n", latest, VERSION, latest)
+			fmt.Print(updateHint(latest))
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {

@@ -4,3 +4,5 @@
 CLAUDE.local.md
 # The binary `go build -o gopamin` writes at the repo root.
 /gopamin
+# What scripts/release.sh writes by default.
+/dist/

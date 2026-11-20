@@ -21,7 +21,7 @@ All boilerplates created by Gopamin are based on [The Clean Architecture](https:
 
 ## Prerequisites
 
-The minimum required tools for using the Gopamin CLI tool is Golang v1.27.3 or higher which can be downloaded from [Go All Releases](https://go.dev/dl). To have full development setup though, other tools are also recommended to be installed on your local machine:
+The minimum required tool for using the Gopamin CLI tool is Go 1.27.3 or higher, which can be downloaded from [Go All Releases](https://go.dev/dl). Go 1.21 or later also works: it downloads Go 1.27.3 by itself the first time Gopamin creates a project, unless `GOTOOLCHAIN` is set to `local` (or another setting that stops Go fetching toolchains). To have full development setup though, other tools are also recommended to be installed on your local machine:
 
 - **[Git](https://git-scm.com/)**: By default each new project created by this tool initializes a Git repo; that's why you need to make sure Git is installed on your machine.
 - **[Docker](https://www.docker.com)**: If you choose to create a new project with a containerized database, a message broker, and/or observability, a merged `docker-compose.yml` will be included in the root of the project for running those backends locally.
@@ -76,54 +76,59 @@ Because the flags are orthogonal, you can combine them freely. Some representati
 
 ## Installation
 
-To install the Gopamin tool, run the following command inside terminal:
+To install Gopamin on Linux or macOS (amd64 or arm64), run the following command inside terminal:
 
 ```text
-$ go install github.com/bezmoradi/gopamin@latest
+$ curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | sh
 ```
 
-To make sure it's installed correctly in your `$GOPATH`, run the following command:
+The script finds your platform and checks that `curl`, `tar`, `sha256sum` or `shasum`, `git` and Go are installed: Gopamin no longer has to be built with Go, but it still runs Go to create projects. It needs Go 1.21 or later, which downloads Go 1.27.3 by itself, or Go 1.27.3 or later when `GOTOOLCHAIN` keeps Go from downloading toolchains (such as `GOTOOLCHAIN=local`). It then downloads the release's archive, checks it against the SHA-256 the script carries and the archive's own `SHA256SUMS`, and installs `gopamin` into `~/.local/bin` without sudo. To install somewhere else, set `GOPAMIN_INSTALL_DIR`:
+
+```text
+$ curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR="$HOME/bin" sh
+```
+
+If something is missing or the download doesn't check out, it stops with one line saying why and changes nothing. Running it again updates Gopamin to the latest release. If the folder isn't on your `PATH`, the script prints the `export PATH=...` line to add to your shell's profile (`~/.bashrc` or `~/.zshrc`). Then make sure it works:
 
 ```text
 $ gopamin version
 ```
 
-If this prints a version number, you're all set. If you instead see `gopamin: command not found`, you need to configure `PATH`. Add it as shown below, then re-run `gopamin version`. For Bash, add this line to `~/.bashrc`:
+To check the script before you run it, download it and verify that the release workflow built it, with a signed-in [GitHub CLI](https://cli.github.com):
+
+```text
+$ curl -fsSLO https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh
+$ gh attestation verify install.sh -R bezmoradi/gopamin --signer-workflow bezmoradi/gopamin/.github/workflows/release.yml
+$ sh install.sh
+```
+
+Each release's notes show how to check an archive the same way.
+
+### With Go
+
+You can also build Gopamin with Go instead:
+
+```text
+$ go install github.com/bezmoradi/gopamin@latest
+```
+
+This installs it into `$(go env GOPATH)/bin`. If `gopamin version` then says `gopamin: command not found`, add that folder to `PATH` in `~/.bashrc` or `~/.zshrc`, and reload the file with `source`:
 
 ```bash
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-Then reload:
-
-```bash
-source ~/.bashrc
-```
-
-For Zsh, add it to `~/.zshrc`:
-
-```bash
-echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
-
-```
-
-Then reload:
-
-```bash
-source ~/.zshrc
-```
-
-If the installation process goes well, from now on you can run the `gopamin` command from anywhere on your file system.
-
 ## Update
 
-`gopamin new` checks the Go module proxy for a newer release and, if there is one, prints a line like this before generating the project:
+`gopamin new` checks the Go module proxy for a newer release and, if there is one, prints a hint like this before generating the project:
 
 ```text
-Gopamin v1.3.0 is available (you have v1.2.0). To update, run: go install github.com/bezmoradi/gopamin@v1.3.0
+Gopamin v1.4.0 is available (you have v1.3.0). To update, run:
+  curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR='/home/you/.local/bin' sh
+Or, if you installed it with Go: go install github.com/bezmoradi/gopamin@v1.4.0
 ```
 
-The check never blocks: it gives up silently after 3 seconds or on any network error. Other commands (`version`, `help`, completion) don't run it, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off.
+The command installs into the folder the running `gopamin` is in. The check never blocks: it gives up silently after 3 seconds or on any network error. Other commands (`version`, `help`, completion) don't run it, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off.
 
 ## Guides
 

@@ -1,0 +1,181 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Only the owner releases
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          if [ "$ACTOR" != bezmoradi ]; then
+            echo "::error::Only bezmoradi starts a release; this run was started by $ACTOR."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tag names VERSION on main
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' || [ "$GITHUB_REF" != "refs/tags/$TAG" ]; then
+            echo "::error::$GITHUB_REF isn't a release tag vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::$GITHUB_SHA isn't on main; tag a commit on main."
+            exit 1
+          fi
+          declared=$(sed -n 's/^const VERSION = "\(v[^"]*\)"$/\1/p' internal/commands/constants.go)
+          if [ "$declared" != "$TAG" ]; then
+            echo "::error::internal/commands/constants.go declares VERSION '$declared', not $TAG; bump VERSION on main and tag that commit."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build the archives and render install.sh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/release.sh "$VERSION" "$RUNNER_TEMP/dist"
+      - name: Check the archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dist="$RUNNER_TEMP/dist"
+          (cd "$dist" && sha256sum --strict -c SHA256SUMS)
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            name="gopamin-$VERSION-$target"
+            grep -qx "[0-9a-f]\{64\}  $name.tar.gz" "$dist/SHA256SUMS"
+            check="$RUNNER_TEMP/check/$name"
+            mkdir -p "$check"
+            tar -xzf "$dist/$name.tar.gz" -C "$check" --no-same-owner
+            (cd "$check/$name" && sha256sum --strict -c SHA256SUMS && test -x gopamin && test -f LICENSE && test -f NOTICES.txt)
+          done
+          got=$("$RUNNER_TEMP/check/gopamin-$VERSION-linux-amd64/gopamin-$VERSION-linux-amd64/gopamin" version)
+          if [ "$got" != "Gopamin CLI Version: v$VERSION" ]; then
+            echo "::error::The linux/amd64 gopamin reports '$got', not version v$VERSION."
+            exit 1
+          fi
+      - name: Check install.sh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dist="$RUNNER_TEMP/dist"
+          install="$dist/install.sh"
+          grep -qx "[0-9a-f]\{64\}  install.sh" "$dist/SHA256SUMS"
+          if grep -q '@[A-Z0-9_]*@' "$install" || ! sh -n "$install" || [ "$(grep -cxF "version='$VERSION'" "$install")" != 1 ]; then
+            echo "::error::install.sh still holds a placeholder, doesn't parse, or doesn't carry version $VERSION."
+            exit 1
+          fi
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            sum=$(awk -v n="gopamin-$VERSION-$target.tar.gz" 'NF == 2 && $2 == n { print $1 }' "$dist/SHA256SUMS")
+            key=$(printf '%s' "$target" | tr - _)
+            if ! printf '%s\n' "$sum" | grep -Eqx '[0-9a-f]{64}' || [ "$(grep -cxF "sha256_$key='$sum'" "$install")" != 1 ]; then
+              echo "::error::install.sh doesn't carry the SHA256SUMS checksum of gopamin-$VERSION-$target.tar.gz."
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: |
+            ${{ runner.temp }}/dist/*.tar.gz
+            ${{ runner.temp }}/dist/*-NOTICES.txt
+            ${{ runner.temp }}/dist/SHA256SUMS
+            ${{ runner.temp }}/dist/install.sh
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: ${{ runner.temp }}/dist
+      - name: Check the archives and install.sh against SHA256SUMS
+        run: cd "$RUNNER_TEMP/dist" && sha256sum --strict -c SHA256SUMS
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/dist/*.tar.gz
+            ${{ runner.temp }}/dist/*-NOTICES.txt
+            ${{ runner.temp }}/dist/SHA256SUMS
+            ${{ runner.temp }}/dist/install.sh
+          create-storage-record: false
+
+  draft:
+    needs: [build, attest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: ${{ runner.temp }}/dist
+      - name: Create a draft release with the archives and install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          [ "$TAG" = "v$VERSION" ]
+          dist="$RUNNER_TEMP/dist"
+          (cd "$dist" && sha256sum --strict -c SHA256SUMS)
+          set --
+          case "$VERSION" in *-*) set -- --prerelease ;; esac
+          fence='```'
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Gopamin $TAG for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64. Each archive holds \`gopamin\`, \`LICENSE\`, \`NOTICES.txt\` (the licences of what is built into it) and a \`SHA256SUMS\` of its files.
+
+          Install this version into \`~/.local/bin\` (or \`GOPAMIN_INSTALL_DIR\`), with curl, tar, git, sha256sum or shasum, and Go, which Gopamin runs to create projects: Go 1.21 or later, which downloads Go 1.27.3 by itself, or Go 1.27.3 or later if \`GOTOOLCHAIN\` keeps it from downloading toolchains:
+
+          ${fence}bash
+          curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh | sh
+          ${fence}
+
+          The script checks the archive for your platform against the SHA-256 it carries and the archive's own \`SHA256SUMS\`. To check the script first, download it, run \`gh attestation verify install.sh -R $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release.yml --source-ref refs/tags/$TAG\`, then \`sh install.sh\`. Or download and check an archive yourself:
+
+          ${fence}bash
+          VERSION=$VERSION OS=linux ARCH=amd64
+          curl -fsSLO https://github.com/$GITHUB_REPOSITORY/releases/download/v\$VERSION/gopamin-\$VERSION-\$OS-\$ARCH.tar.gz
+          curl -fsSLO https://github.com/$GITHUB_REPOSITORY/releases/download/v\$VERSION/SHA256SUMS
+          grep " gopamin-\$VERSION-\$OS-\$ARCH.tar.gz\$" SHA256SUMS | shasum -a 256 -c -
+          gh attestation verify gopamin-\$VERSION-\$OS-\$ARCH.tar.gz -R $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release.yml --source-ref refs/tags/v\$VERSION
+          ${fence}
+
+          With Go, \`go install github.com/$GITHUB_REPOSITORY@$TAG\` builds this version instead.
+
+          The archives, \`install.sh\`, \`SHA256SUMS\` and the notices carry build provenance signed keylessly with Sigstore by this repository's release workflow for $TAG, from commit $GITHUB_SHA.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag "$@" \
+            --title "Gopamin $TAG" --notes-file "$RUNNER_TEMP/notes.md" \
+            "$dist"/*.tar.gz "$dist"/*-NOTICES.txt "$dist/SHA256SUMS" "$dist/install.sh"
