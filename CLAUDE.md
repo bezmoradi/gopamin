@@ -12,8 +12,12 @@ Gopamin is a CLI tool for scaffolding Go projects based on Clean Architecture pr
 # Build the CLI
 go build -o gopamin github.com/bezmoradi/gopamin
 
-# Install globally
+# Install the latest release (scripts/install.sh, rendered per release), or build it with Go
+curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | sh
 go install github.com/bezmoradi/gopamin@latest
+
+# Build a release locally (needs a clean tree; VERSION must equal constants.go's without the v)
+scripts/release.sh 1.3.0 /tmp/gopamin-dist
 
 # Run commands
 gopamin version
@@ -34,6 +38,7 @@ gopamin new -n my-worker -t worker -b kafka -d postgres -l slog
 - `internal/project/` - The `Project` type every template renders with, plus the derived predicates (`PublishesEvents`, `HasCompose`, `IsRelational`, `HasHTTP`, ...) that both the scaffolder and the templates branch on
 - `internal/scaffolder/` - Project scaffolding logic (data-driven recipes + one build function per project type)
 - `internal/templates/` - Embedded template files (using Go's `embed`)
+- `scripts/` - Release tooling: `release.sh` (archives + checksums), `release-install.sh` (renders `install.sh`), `install.sh` (the one-command installer template); see Version Management
 
 ### Key Design Patterns
 
@@ -137,6 +142,10 @@ For a change that reaches runtime (compose, adapters, `cmd/`), pick shapes that 
 
 ## Version Management
 
-Version is defined in `internal/commands/constants.go` (keep the `VERSION = "v…"` form: releases up to v1.2.0 read it from `main` for their update check). `gopamin new` runs an **advisory, timed** update check against the Go module proxy's `@latest` (semver comparison): it prints a hint only when a newer release exists, **never blocks**, silently skips on network/timeout failure, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off. `version`/`help`/completion never run it.
+Version is defined in `internal/commands/constants.go` (keep the `VERSION = "v…"` form: releases up to v1.2.0 read it from `main` for their update check, and the release workflow and `scripts/release.sh` read it too).
+
+Releases come from `.github/workflows/release.yml`: bump `VERSION` on `main`, then the owner pushes a tag `vX.Y.Z` on that commit. The workflow refuses a tag pushed by anyone else, not on `main`, or not equal to `VERSION`; runs `scripts/release.sh`, which builds `gopamin-<version>-<os>-<arch>.tar.gz` for linux and darwin on amd64 and arm64 (`CGO_ENABLED=0 go build -trimpath`; each holds `gopamin`, `LICENSE`, `NOTICES.txt` and a `SHA256SUMS` of them), the third-party notices, a `SHA256SUMS`, and `install.sh` rendered from `scripts/install.sh` by `scripts/release-install.sh` with the version and the archives' SHA-256 sums; checks them (the linux/amd64 `gopamin version` must print the tag); signs build provenance with `actions/attest`; and drafts the release. The owner publishes the draft. `scripts/install.sh` is POSIX `sh`, refuses to run unrendered, and needs curl, tar, sha256sum or shasum, git and Go (`gopamin new` runs Go): Go 1.27.3 or later, or Go 1.21 or later when `go env GOTOOLCHAIN` is `auto` or `<name>+auto`, so Go switches to the go1.27.3 that generated `go.mod` files require (it then prints a note, not a stop; `local`, `path`, `<name>+path` and a bare `<name>` can't download, so they need 1.27.3); it installs into `${GOPAMIN_INSTALL_DIR:-$HOME/.local/bin}`. It has no switch to download from anywhere but the release: to try it locally, edit the `base=` line in a copy of a rendered script.
+
+`gopamin new` runs an **advisory, timed** update check against the Go module proxy's `@latest` (semver comparison): it prints a hint only when a newer release exists (the install command pointed at the running binary's folder, and `go install …@<version>`), **never blocks**, silently skips on network/timeout failure, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off. `version`/`help`/completion never run it.
 
 Generated projects' `go` directive is pinned by the `generatedGoVersion` constant in `internal/scaffolder/scaffolder.go` (keep it in lockstep with this repo's `go.mod`). Their runtime modules are pinned in `internal/scaffolder/versions.go` (`modulePins`); bump them deliberately and re-run a generated cross-section (build, vet, test, lint, arch-check, govulncheck) before releasing.
