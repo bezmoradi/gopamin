@@ -21,8 +21,13 @@
 - [Supported Flags](#supported-flags)
 - [Recipes](#recipes)
 - [Installation](#installation)
-- [Update](#update)
+  - [Install somewhere else](#install-somewhere-else)
+  - [Update](#update)
+  - [Check the script first](#check-the-script-first)
+  - [Other ways to install](#other-ways-to-install)
 - [Guides](#guides)
+- [Development](#development)
+  - [Releasing](#releasing)
 - [Author](#author)
 - [License](#license)
 
@@ -91,25 +96,49 @@ Because the flags are orthogonal, you can combine them freely. Some representati
 
 ## Installation
 
-To install Gopamin on Linux or macOS (amd64 or arm64), run the following command inside terminal:
+On Linux or macOS, amd64 or arm64, run:
 
 ```text
 $ curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | sh
 ```
 
-The script finds your platform and checks that `curl`, `tar`, `sha256sum` or `shasum`, `git` and Go are installed: Gopamin no longer has to be built with Go, but it still runs Go to create projects. It needs Go 1.21 or later, which downloads Go 1.27.3 by itself, or Go 1.27.3 or later when `GOTOOLCHAIN` keeps Go from downloading toolchains (such as `GOTOOLCHAIN=local`). It then downloads the release's archive, checks it against the SHA-256 the script carries and the archive's own `SHA256SUMS`, and installs `gopamin` into `~/.local/bin` without sudo. To install somewhere else, set `GOPAMIN_INSTALL_DIR`:
+The script:
 
-```text
-$ curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR="$HOME/bin" sh
-```
+- runs on linux and darwin, amd64 and arm64, and stops with one line on anything else, or when `curl`, `tar`, `git`, `sha256sum` or `shasum`, or Go is missing;
+- needs Go because `gopamin new` runs it to create projects: Go 1.21 or later, which downloads Go 1.27.3 by itself, or Go 1.27.3 or later when `GOTOOLCHAIN` keeps Go from downloading toolchains (such as `GOTOOLCHAIN=local`);
+- downloads the release's archive for your platform and checks it against the SHA-256 written into the script and against the archive's own `SHA256SUMS`, and checks that its `gopamin version` prints the release's version;
+- installs `gopamin` into `~/.local/bin` without sudo, and prints the `export PATH=...` line to add to `~/.bashrc` or `~/.zshrc` if that folder isn't on your `PATH`. A failed download or check changes nothing.
 
-If something is missing or the download doesn't check out, it stops with one line saying why and changes nothing. Running it again updates Gopamin to the latest release. If the folder isn't on your `PATH`, the script prints the `export PATH=...` line to add to your shell's profile (`~/.bashrc` or `~/.zshrc`). Then make sure it works:
+Then make sure it works:
 
 ```text
 $ gopamin version
 ```
 
-To check the script before you run it, download it and verify that the release workflow built it, with a signed-in [GitHub CLI](https://cli.github.com):
+### Install somewhere else
+
+Set `GOPAMIN_INSTALL_DIR` to the folder to install into:
+
+```text
+$ curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR="$HOME/bin" sh
+```
+
+### Update
+
+Run the same command again. `gopamin new` asks GitHub for the latest release and, when it is newer than yours, prints the command that updates the `gopamin` in the folder it runs from before generating the project:
+
+```text
+Gopamin v1.4.0 is available (you have v1.3.0). To update:
+  curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR='/home/you/.local/bin' sh
+Or, with Go: go install github.com/bezmoradi/gopamin@v1.4.0
+Set GOPAMIN_NO_UPDATE_CHECK=1 to stop this check.
+```
+
+The check asks `https://api.github.com/repos/bezmoradi/gopamin/releases/latest`, sending only `gopamin/<version>` as the User-Agent. It never blocks: it gives up silently after 3 seconds or on any error. Other commands (`version`, `help`, completion) don't run it. Set `GOPAMIN_NO_UPDATE_CHECK=1` to turn it off; it is also off when `CI` or `GITHUB_ACTIONS` is set.
+
+### Check the script first
+
+To check the script before it runs, download it and verify that the release workflow built it, with a signed-in [GitHub CLI](https://cli.github.com):
 
 ```text
 $ curl -fsSLO https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh
@@ -119,9 +148,9 @@ $ sh install.sh
 
 Each release's notes show how to check an archive the same way.
 
-### With Go
+### Other ways to install
 
-You can also build Gopamin with Go instead:
+With Go (see [Prerequisites](#prerequisites)), build and install the latest release:
 
 ```text
 $ go install github.com/bezmoradi/gopamin@latest
@@ -133,21 +162,42 @@ This installs it into `$(go env GOPATH)/bin`. If `gopamin version` then says `go
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-## Update
-
-`gopamin new` checks the Go module proxy for a newer release and, if there is one, prints a hint like this before generating the project:
-
-```text
-Gopamin v1.4.0 is available (you have v1.3.0). To update, run:
-  curl -fsSL https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh | GOPAMIN_INSTALL_DIR='/home/you/.local/bin' sh
-Or, if you installed it with Go: go install github.com/bezmoradi/gopamin@v1.4.0
-```
-
-The command installs into the folder the running `gopamin` is in. The check never blocks: it gives up silently after 3 seconds or on any network error. Other commands (`version`, `help`, completion) don't run it, and `GOPAMIN_NO_UPDATE_CHECK=1` turns it off.
+To build from source, see [Development](#development).
 
 ## Guides
 
 Each new project includes a `README.md` file in the root path which provides you with some guides on how to use that specific project.
+
+## Development
+
+To build from source, with Go 1.27.3 or later, in Gopamin's checkout:
+
+```text
+$ go build -o gopamin github.com/bezmoradi/gopamin
+$ go build ./... && go vet ./... && go test ./... && test -z "$(gofmt -l .)"
+```
+
+`scripts/release.sh <version> <dir>` builds a release folder from a clean checkout: the four archives, the notices, `install.sh` and `SHA256SUMS`. [CLAUDE.md](CLAUDE.md#testing) says how to check a change by generating real projects.
+
+### Releasing
+
+Only the owner (bezmoradi) can release: the release workflow refuses a tag pushed by anyone else, one not on `main`, or one that doesn't equal `VERSION`.
+
+1. Set `VERSION` in `internal/commands/constants.go` to the new version (`vX.Y.Z`), and merge that to `main`.
+2. Tag `main` and push the tag:
+
+   ```text
+   $ git fetch origin && git tag -a vX.Y.Z -m "Gopamin X.Y.Z" origin/main && git push origin vX.Y.Z
+   ```
+
+3. Watch the release workflow:
+
+   ```text
+   $ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+   ```
+
+4. Check the draft with `gh release view vX.Y.Z`: it lists the four archives, the NOTICES file, `install.sh` and `SHA256SUMS`.
+5. Publish it with `gh release edit vX.Y.Z --draft=false` (or on the releases page). From then on the one-command install installs it and older versions announce it.
 
 ## Author
 

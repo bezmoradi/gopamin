@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,18 +16,21 @@ import (
 	"unicode/utf8"
 )
 
-// latestURL is the Go module proxy's record of the newest tagged release: what
-// `go install github.com/bezmoradi/gopamin@latest` installs.
-const latestURL = "https://proxy.golang.org/github.com/bezmoradi/gopamin/@latest"
+// latestURL is GitHub's record of the newest published release: a release that
+// is neither a draft nor a prerelease, which is what installScript installs.
+const latestURL = "https://api.github.com/repos/bezmoradi/gopamin/releases/latest"
 
 // installScript is the release's one-command installer; it always installs the
 // newest published release.
 const installScript = "https://github.com/bezmoradi/gopamin/releases/latest/download/install.sh"
 
+// updateWait bounds the whole update check, so it never holds up `gopamin new`.
+const updateWait = 3 * time.Second
+
 // updateHint tells how to update to latest: the install script, pointed at the
 // folder this gopamin runs from, or `go install` for those who installed with Go.
 func updateHint(latest string) string {
-	return fmt.Sprintf("Gopamin %v is available (you have %v). To update, run:\n  curl -fsSL %v | %vsh\nOr, if you installed it with Go: go install github.com/bezmoradi/gopamin@%v\n\n",
+	return fmt.Sprintf("\nGopamin %v is available (you have %v). To update:\n  curl -fsSL %v | %vsh\nOr, with Go: go install github.com/bezmoradi/gopamin@%v\nSet GOPAMIN_NO_UPDATE_CHECK=1 to stop this check.\n\n",
 		latest, VERSION, installScript, installDirPrefix(), latest)
 }
 
@@ -55,16 +59,28 @@ func unsafeRune(r rune) bool {
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
 }
 
-// newerVersion returns the latest release when it is newer than VERSION, and ""
-// otherwise. It is advisory: a network or parse failure returns "" within 3 s, so
-// it never blocks a command. GOPAMIN_NO_UPDATE_CHECK=1 turns it off.
+// newerVersion returns the latest published release's tag when it is newer
+// than VERSION, and "" otherwise. It is advisory: a network failure, a timeout, a
+// non-200 answer, a draft or prerelease, or a tag that isn't vMAJOR.MINOR.PATCH
+// returns "" within updateWait, so it never blocks a command. Setting
+// GOPAMIN_NO_UPDATE_CHECK, CI or GITHUB_ACTIONS turns it off.
 func newerVersion() string {
-	if os.Getenv("GOPAMIN_NO_UPDATE_CHECK") != "" {
-		return ""
+	for _, env := range []string{"GOPAMIN_NO_UPDATE_CHECK", "CI", "GITHUB_ACTIONS"} {
+		if os.Getenv(env) != "" {
+			return ""
+		}
 	}
 
-	client := http.Client{Timeout: 3 * time.Second}
-	res, err := client.Get(latestURL)
+	ctx, cancel := context.WithTimeout(context.Background(), updateWait)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "gopamin/"+VERSION)
+	client := http.Client{Timeout: updateWait}
+	res, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -73,14 +89,18 @@ func newerVersion() string {
 		return ""
 	}
 
-	var info struct{ Version string }
-	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&info); err != nil {
+	var info struct {
+		TagName    string `json:"tag_name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&info); err != nil || info.Draft || info.Prerelease {
 		return ""
 	}
-	if !isNewer(info.Version, VERSION) {
+	if !strings.HasPrefix(info.TagName, "v") || !isNewer(info.TagName, VERSION) {
 		return ""
 	}
-	return info.Version
+	return info.TagName
 }
 
 // isNewer reports whether version a is newer than b, both vMAJOR.MINOR.PATCH. A
@@ -98,8 +118,11 @@ func parseVersion(version string) ([]int, bool) {
 	}
 	numbers := make([]int, 3)
 	for i, part := range parts {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return nil, false
+		}
 		n, err := strconv.Atoi(part)
-		if err != nil || n < 0 {
+		if err != nil {
 			return nil, false
 		}
 		numbers[i] = n
